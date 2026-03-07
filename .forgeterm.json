@@ -1,0 +1,44 @@
+{
+  "theme": {
+    "background": "#0f172a",
+    "foreground": "#e2e8f0",
+    "cursor": "#3af860",
+    "selection": "rgba(56, 189, 248, 0.3)",
+    "black": "#1e293b",
+    "red": "#f87171",
+    "green": "#4ade80",
+    "yellow": "#facc15",
+    "blue": "#60a5fa",
+    "magenta": "#c084fc",
+    "cyan": "#22d3ee",
+    "white": "#f1f5f9"
+  },
+  "font": {
+    "family": "JetBrains Mono, Menlo, Monaco, monospace",
+    "size": 13
+  },
+  "window": {
+    "accentColor": "#3af860",
+    "titlebarBackground": "#0b140d",
+    "titlebarBackgroundEnd": "#141f16",
+    "titlebarForeground": "#8bb192",
+    "sidebarBackground": "#0d170f",
+    "sidebarForeground": "#87ab8e",
+    "buttonBackground": "#1d3021",
+    "emoji": "💚"
+  },
+  "sessions": [
+    {
+      "name": "Claude",
+      "command": "claude --dangerously-skip-permissions",
+      "autoStart": true
+    },
+    {
+      "name": "Github",
+      "command": "gh auth status",
+      "autoStart": true
+    }
+  ],
+  "terminalTheme": "dark",
+  "projectName": "Forge Term  💻"
+}
