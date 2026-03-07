@@ -17,21 +17,23 @@ ForgeTerm opens per-project windows with preconfigured terminal sessions, custom
 
 When working with LLMs like Claude Code, you often have multiple terminals open - one for the AI, one for your dev server, one for git, one for tests. ForgeTerm lets you predefine all of those per project so opening a project means everything is ready to go.
 
-## Install
+## Download
+
+**[Download ForgeTerm v0.1.0 for macOS (Apple Silicon)](https://github.com/codama-dev/forgeterm/releases/download/v0.1.0/ForgeTerm-Mac-0.1.0.dmg)**
+
+See all releases on the [Releases page](https://github.com/codama-dev/forgeterm/releases).
+
+## Build from Source
 
 ```bash
-# Clone and install
 git clone https://github.com/codama-dev/forgeterm.git
 cd forgeterm
 pnpm install
 
-# Start in dev mode
+# Dev mode
 pnpm dev
-```
 
-### Build
-
-```bash
+# Package
 pnpm build
 ```
 
