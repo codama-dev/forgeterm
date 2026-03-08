@@ -84,6 +84,78 @@ const api: ForgeTermAPI = {
 
   openProject: (projectPath: string) =>
     ipcRenderer.invoke('projects:open', projectPath),
+
+  getWorkspaces: () =>
+    ipcRenderer.invoke('workspaces:get'),
+
+  setProjectWorkspace: (projectPath: string, workspaceName: string) =>
+    ipcRenderer.invoke('workspaces:set-project', projectPath, workspaceName),
+
+  removeProjectFromWorkspace: (projectPath: string) =>
+    ipcRenderer.invoke('workspaces:remove-project', projectPath),
+
+  openWorkspace: (workspaceName: string, arrange: boolean) =>
+    ipcRenderer.invoke('workspaces:open', workspaceName, arrange),
+
+  setWorkspaceArrange: (workspaceName: string, arrange: boolean) =>
+    ipcRenderer.invoke('workspaces:set-arrange', workspaceName, arrange),
+
+  setWorkspaceScreenPrefs: (workspaceName: string, displayCount: number, indices: number[]) =>
+    ipcRenderer.invoke('workspaces:set-screen-prefs', workspaceName, displayCount, indices),
+
+  getDisplays: () =>
+    ipcRenderer.invoke('displays:get'),
+
+  toggleWorkspaceProject: (workspaceName: string, projectPath: string) =>
+    ipcRenderer.invoke('workspaces:toggle-project', workspaceName, projectPath),
+
+  getSidebarMode: () =>
+    ipcRenderer.invoke('project:get-sidebar-mode'),
+
+  saveSidebarMode: (mode: string) =>
+    ipcRenderer.invoke('project:save-sidebar-mode', mode),
+
+  importVSCodeProjects: () =>
+    ipcRenderer.invoke('import:vscode-projects'),
+
+  detectProjectManagerFiles: () =>
+    ipcRenderer.invoke('import:detect-editors'),
+
+  importFromPath: (filePath: string) =>
+    ipcRenderer.invoke('import:from-path', filePath),
+
+  shouldShowImportSuggestion: () =>
+    ipcRenderer.invoke('import:should-show-suggestion'),
+
+  dismissImportSuggestion: () =>
+    ipcRenderer.invoke('import:dismiss-suggestion'),
+
+  removeRecentProject: (projectPath: string) =>
+    ipcRenderer.invoke('projects:remove-recent', projectPath),
+
+  deleteWorkspace: (workspaceName: string) =>
+    ipcRenderer.invoke('workspaces:delete', workspaceName),
+
+  openDataFile: (which: 'workspaces' | 'recent-projects') =>
+    ipcRenderer.invoke('config:open-data-file', which),
+
+  revealInFinder: () =>
+    ipcRenderer.invoke('project:reveal-in-finder'),
+
+  getRepoUrl: () =>
+    ipcRenderer.invoke('project:get-repo-url'),
+
+  openExternal: (url: string) =>
+    ipcRenderer.invoke('shell:open-external', url),
+
+  getFavoriteThemes: () =>
+    ipcRenderer.invoke('themes:get-favorites'),
+
+  saveFavoriteTheme: (theme) =>
+    ipcRenderer.invoke('themes:save-favorite', JSON.parse(JSON.stringify(theme))),
+
+  deleteFavoriteTheme: (name: string) =>
+    ipcRenderer.invoke('themes:delete-favorite', name),
 }
 
 contextBridge.exposeInMainWorld('forgeterm', api)

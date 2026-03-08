@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { ForgeTermConfig } from '../../shared/types'
+import type { ForgeTermConfig, Workspace } from '../../shared/types'
 
 interface SessionConfig {
   name: string
@@ -18,7 +18,11 @@ interface ProjectSettingsProps {
 export function ProjectSettings({ config, accentColor, projectName, onSave, onCancel }: ProjectSettingsProps) {
   const [sessions, setSessions] = useState<SessionConfig[]>([])
   const [customName, setCustomName] = useState('')
+  const [workspaceName, setWorkspaceName] = useState('')
+  const [existingWorkspaces, setExistingWorkspaces] = useState<Workspace[]>([])
+  const [showWorkspaceSuggestions, setShowWorkspaceSuggestions] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
+  const wsInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     setCustomName(config?.projectName ?? '')
@@ -30,6 +34,15 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
         autoStart: s.autoStart ?? true,
       })),
     )
+    // Load workspace info
+    Promise.all([
+      window.forgeterm.getProjectPath(),
+      window.forgeterm.getWorkspaces(),
+    ]).then(([projectPath, workspaces]) => {
+      setExistingWorkspaces(workspaces)
+      const current = workspaces.find((ws) => ws.projects.includes(projectPath))
+      if (current) setWorkspaceName(current.name)
+    })
   }, [config])
 
   useEffect(() => {
@@ -50,7 +63,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
     )
   }, [])
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const validSessions = sessions.filter((s) => s.name.trim())
     const updated: ForgeTermConfig = {
       ...config,
@@ -61,8 +74,20 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
         autoStart: s.autoStart,
       })),
     }
+    // Save workspace association
+    const projectPath = await window.forgeterm.getProjectPath()
+    const trimmedWs = workspaceName.trim()
+    if (trimmedWs) {
+      await window.forgeterm.setProjectWorkspace(projectPath, trimmedWs)
+    } else {
+      await window.forgeterm.removeProjectFromWorkspace(projectPath)
+    }
     onSave(updated)
-  }, [config, customName, sessions, onSave])
+  }, [config, customName, sessions, workspaceName, onSave])
+
+  const filteredWorkspaces = existingWorkspaces.filter(
+    (ws) => ws.name.toLowerCase().includes(workspaceName.toLowerCase()) && ws.name !== workspaceName,
+  )
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
@@ -78,6 +103,55 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
             onChange={(e) => setCustomName(e.target.value)}
             placeholder={projectName}
           />
+        </div>
+
+        <div className="form-field" style={{ position: 'relative' }}>
+          <label>Workspace</label>
+          <div className="workspace-input-row">
+            <input
+              ref={wsInputRef}
+              type="text"
+              value={workspaceName}
+              onChange={(e) => {
+                setWorkspaceName(e.target.value)
+                setShowWorkspaceSuggestions(true)
+              }}
+              onFocus={() => setShowWorkspaceSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowWorkspaceSuggestions(false), 150)}
+              placeholder="Type to join or create a workspace..."
+            />
+            {workspaceName && (
+              <button
+                className="workspace-clear-btn"
+                onClick={() => setWorkspaceName('')}
+                title="Remove from workspace"
+                type="button"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                  <path d="M2 2l8 8M10 2l-8 8" />
+                </svg>
+              </button>
+            )}
+          </div>
+          {showWorkspaceSuggestions && filteredWorkspaces.length > 0 && (
+            <div className="workspace-suggestions">
+              {filteredWorkspaces.map((ws) => (
+                <div
+                  key={ws.name}
+                  className="workspace-suggestion"
+                  onMouseDown={() => {
+                    setWorkspaceName(ws.name)
+                    setShowWorkspaceSuggestions(false)
+                  }}
+                >
+                  <span className="workspace-suggestion-name">{ws.name}</span>
+                  <span className="workspace-suggestion-count">
+                    {ws.projects.length} project{ws.projects.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="settings-section-title">Startup Sessions</div>

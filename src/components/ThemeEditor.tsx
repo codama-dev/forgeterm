@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import type { ForgeTermConfig } from '../../shared/types'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import type { ForgeTermConfig, FavoriteTheme } from '../../shared/types'
 import {
   PRESET_THEMES,
   PROJECT_EMOJIS,
@@ -13,6 +13,7 @@ interface ThemeEditorProps {
   config: ForgeTermConfig | null
   onSave: (config: ForgeTermConfig) => void
   onCancel: () => void
+  onPreview?: (windowTheme: WindowTheme | null) => void
 }
 
 interface ColorFieldProps {
@@ -49,10 +50,14 @@ function ThemeCard({
   theme,
   selected,
   onClick,
+  onMouseEnter,
+  onMouseLeave,
 }: {
   theme: PresetTheme
   selected: boolean
   onClick: () => void
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
 }) {
   const w = theme.window
   const gradient = `linear-gradient(to right, ${w.titlebarBackground}, ${w.titlebarBackgroundEnd})`
@@ -60,6 +65,8 @@ function ThemeCard({
     <button
       className={`theme-card ${selected ? 'selected' : ''}`}
       onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
       style={selected ? { borderColor: w.accentColor } : undefined}
     >
       <div className="theme-card-preview">
@@ -75,6 +82,58 @@ function ThemeCard({
         </div>
       </div>
       <span className="theme-card-name">{theme.name}</span>
+    </button>
+  )
+}
+
+function FavoriteCard({
+  fav,
+  selected,
+  onClick,
+  onDelete,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  fav: FavoriteTheme
+  selected: boolean
+  onClick: () => void
+  onDelete: () => void
+  onMouseEnter?: () => void
+  onMouseLeave?: () => void
+}) {
+  const w = fav.window
+  const gradient = `linear-gradient(to right, ${w.titlebarBackground}, ${w.titlebarBackgroundEnd})`
+  const termBg = fav.terminalMode === 'light' ? '#f8fafc' : '#0f172a'
+  return (
+    <button
+      className={`theme-card ${selected ? 'selected' : ''}`}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      style={selected ? { borderColor: w.accentColor } : undefined}
+    >
+      <div className="theme-card-preview">
+        <div className="tc-titlebar" style={{ background: gradient }}>
+          <span className="tc-dot" style={{ background: w.accentColor }} />
+        </div>
+        <div className="tc-body">
+          <div className="tc-sidebar" style={{ background: w.sidebarBackground }}>
+            <div className="tc-session" style={{ borderLeftColor: w.accentColor, background: w.buttonBackground }} />
+            <div className="tc-session" />
+          </div>
+          <div className="tc-terminal" style={{ background: termBg }} />
+        </div>
+      </div>
+      <span className="theme-card-name">
+        {fav.name}
+        <button
+          className="fav-delete-btn"
+          onClick={(e) => { e.stopPropagation(); onDelete() }}
+          title="Remove favorite"
+        >
+          x
+        </button>
+      </span>
     </button>
   )
 }
@@ -106,12 +165,17 @@ function MiniPreview({ windowTheme, terminalBg }: { windowTheme: WindowTheme; te
   )
 }
 
-export function ThemeEditor({ config, onSave, onCancel }: ThemeEditorProps) {
+export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditorProps) {
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
+  const [selectedFavorite, setSelectedFavorite] = useState<string | null>(null)
   const [terminalMode, setTerminalMode] = useState<'dark' | 'light'>('dark')
   const [emoji, setEmoji] = useState<string>('')
   const [generateColor, setGenerateColor] = useState('#38bdf8')
   const [showCustom, setShowCustom] = useState(false)
+  const [favorites, setFavorites] = useState<FavoriteTheme[]>([])
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const saveInputRef = useRef<HTMLInputElement>(null)
 
   // Custom color state
   const [custom, setCustom] = useState<WindowTheme>({
@@ -124,11 +188,22 @@ export function ThemeEditor({ config, onSave, onCancel }: ThemeEditorProps) {
     buttonBackground: '#172541',
   })
 
+  // Load favorites on mount
+  useEffect(() => {
+    window.forgeterm.getFavoriteThemes().then(setFavorites)
+  }, [])
+
   // Load from existing config
   useEffect(() => {
     const w = config?.window
     if (w?.themeName) {
-      setSelectedPreset(w.themeName)
+      // Check if it's a favorite
+      if (favorites.some((f) => f.name === w.themeName)) {
+        setSelectedFavorite(w.themeName)
+        setSelectedPreset(null)
+      } else {
+        setSelectedPreset(w.themeName)
+      }
     }
     if (w?.emoji) setEmoji(w.emoji)
     if (config?.terminalTheme) setTerminalMode(config.terminalTheme)
@@ -144,35 +219,95 @@ export function ThemeEditor({ config, onSave, onCancel }: ThemeEditorProps) {
         buttonBackground: w.buttonBackground ?? '#172541',
       })
     }
-  }, [config])
+  }, [config, favorites])
 
   const activeTheme: WindowTheme = (() => {
     if (selectedPreset) {
       const preset = PRESET_THEMES.find((t) => t.id === selectedPreset)
       if (preset) return preset.window
     }
+    if (selectedFavorite) {
+      const fav = favorites.find((f) => f.name === selectedFavorite)
+      if (fav) return fav.window as WindowTheme
+    }
     return custom
   })()
 
   const terminalBg = terminalMode === 'light' ? '#f8fafc' : '#0f172a'
 
+  // Send preview to parent and clear on unmount
+  const sendPreview = useCallback((theme: WindowTheme | null) => {
+    onPreview?.(theme)
+  }, [onPreview])
+
+  useEffect(() => {
+    return () => sendPreview(null)
+  }, [sendPreview])
+
   const handleSelectPreset = useCallback((theme: PresetTheme) => {
     setSelectedPreset(theme.id)
+    setSelectedFavorite(null)
     setCustom({ ...theme.window })
     setShowCustom(false)
-  }, [])
+    sendPreview(null) // clear hover preview since we're committing
+  }, [sendPreview])
+
+  const handleSelectFavorite = useCallback((fav: FavoriteTheme) => {
+    setSelectedFavorite(fav.name)
+    setSelectedPreset(null)
+    setCustom({ ...fav.window } as WindowTheme)
+    setTerminalMode(fav.terminalMode)
+    setShowCustom(false)
+    sendPreview(null)
+  }, [sendPreview])
+
+  const handleDeleteFavorite = useCallback(async (name: string) => {
+    await window.forgeterm.deleteFavoriteTheme(name)
+    setFavorites((prev) => prev.filter((f) => f.name !== name))
+    if (selectedFavorite === name) {
+      setSelectedFavorite(null)
+    }
+  }, [selectedFavorite])
 
   const handleGenerateFromColor = useCallback((color: string) => {
     setGenerateColor(color)
     const generated = generateWindowTheme(color)
     setCustom(generated)
     setSelectedPreset(null)
+    setSelectedFavorite(null)
   }, [])
 
   const updateCustomField = useCallback((field: keyof WindowTheme, value: string) => {
     setCustom((prev) => ({ ...prev, [field]: value }))
     setSelectedPreset(null)
+    setSelectedFavorite(null)
   }, [])
+
+  const handleSaveFavorite = useCallback(async () => {
+    const name = saveName.trim()
+    if (!name) return
+    const theme: FavoriteTheme = {
+      name,
+      window: { ...activeTheme },
+      terminalMode,
+    }
+    await window.forgeterm.saveFavoriteTheme(theme)
+    setFavorites((prev) => {
+      const filtered = prev.filter((f) => f.name !== name)
+      return [...filtered, theme]
+    })
+    setSelectedFavorite(name)
+    setSelectedPreset(null)
+    setShowSaveDialog(false)
+    setSaveName('')
+  }, [saveName, activeTheme, terminalMode])
+
+  // Focus save input when dialog opens
+  useEffect(() => {
+    if (showSaveDialog) {
+      setTimeout(() => saveInputRef.current?.focus(), 50)
+    }
+  }, [showSaveDialog])
 
   const handleSave = useCallback(() => {
     const terminal = getTerminalTheme(terminalMode)
@@ -186,11 +321,24 @@ export function ThemeEditor({ config, onSave, onCancel }: ThemeEditorProps) {
       window: {
         ...activeTheme,
         emoji: emoji || undefined,
-        themeName: selectedPreset ?? undefined,
+        themeName: selectedPreset ?? selectedFavorite ?? undefined,
       },
     }
     onSave(updated)
-  }, [config, activeTheme, terminalMode, emoji, selectedPreset, onSave])
+  }, [config, activeTheme, terminalMode, emoji, selectedPreset, selectedFavorite, onSave])
+
+  // Live preview handlers for hover
+  const handlePresetHover = useCallback((theme: PresetTheme) => {
+    sendPreview(theme.window)
+  }, [sendPreview])
+
+  const handleFavoriteHover = useCallback((fav: FavoriteTheme) => {
+    sendPreview(fav.window as WindowTheme)
+  }, [sendPreview])
+
+  const handleHoverLeave = useCallback(() => {
+    sendPreview(null)
+  }, [sendPreview])
 
   return (
     <div className="modal-overlay" onClick={onCancel}>
@@ -233,10 +381,32 @@ export function ThemeEditor({ config, onSave, onCancel }: ThemeEditorProps) {
                 theme={theme}
                 selected={selectedPreset === theme.id}
                 onClick={() => handleSelectPreset(theme)}
+                onMouseEnter={() => handlePresetHover(theme)}
+                onMouseLeave={handleHoverLeave}
               />
             ))}
           </div>
         </div>
+
+        {/* Favorite Themes */}
+        {favorites.length > 0 && (
+          <div className="theme-section">
+            <div className="theme-section-title">Favorites</div>
+            <div className="theme-grid">
+              {favorites.map((fav) => (
+                <FavoriteCard
+                  key={fav.name}
+                  fav={fav}
+                  selected={selectedFavorite === fav.name}
+                  onClick={() => handleSelectFavorite(fav)}
+                  onDelete={() => handleDeleteFavorite(fav.name)}
+                  onMouseEnter={() => handleFavoriteHover(fav)}
+                  onMouseLeave={handleHoverLeave}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Generate from color */}
         <div className="theme-section">
@@ -297,9 +467,44 @@ export function ThemeEditor({ config, onSave, onCancel }: ThemeEditorProps) {
           )}
         </div>
 
+        {/* Save as favorite dialog */}
+        {showSaveDialog && (
+          <div className="save-favorite-dialog">
+            <input
+              ref={saveInputRef}
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveFavorite(); if (e.key === 'Escape') setShowSaveDialog(false) }}
+              placeholder="Theme name..."
+              className="save-favorite-input"
+              spellCheck={false}
+            />
+            <button
+              className="btn-create btn-save-fav"
+              style={{ backgroundColor: activeTheme.accentColor }}
+              onClick={handleSaveFavorite}
+              disabled={!saveName.trim()}
+            >
+              Save
+            </button>
+            <button className="btn-cancel" onClick={() => setShowSaveDialog(false)}>
+              Cancel
+            </button>
+          </div>
+        )}
+
         <div className="modal-actions">
           <button type="button" className="btn-cancel" onClick={onCancel}>
             Cancel
+          </button>
+          <button
+            type="button"
+            className="btn-save-favorite"
+            onClick={() => setShowSaveDialog(true)}
+            title="Save current theme as a favorite"
+          >
+            Save as Favorite
           </button>
           <button
             type="button"

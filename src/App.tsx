@@ -8,7 +8,11 @@ import { ProjectSwitcher } from './components/ProjectSwitcher'
 import { HelpModal } from './components/HelpModal'
 import { useSessionStore } from './store/sessionStore'
 import type { ForgeTermConfig } from '../shared/types'
+import type { WindowTheme } from './themes'
+import { generateWindowTheme, adjustAccentBrightness, getTerminalTheme } from './themes'
 import './App.css'
+
+type SidebarMode = 'full' | 'compact' | 'hidden'
 
 function App() {
   const { sessions, activeSessionId, addSession, setRunning, setActive } = useSessionStore()
@@ -19,18 +23,22 @@ function App() {
   const [showProjectSwitcher, setShowProjectSwitcher] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [folderName, setFolderName] = useState('ForgeTerm')
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('full')
+  const [previewTheme, setPreviewTheme] = useState<WindowTheme | null>(null)
   const initializedRef = useRef(false)
 
   const displayName = config?.projectName || folderName
   const win = config?.window
-  const accentColor = win?.accentColor ?? '#38bdf8'
-  const titlebarBg = win?.titlebarBackgroundEnd
-    ? `linear-gradient(to right, ${win.titlebarBackground ?? '#0f1a2e'}, ${win.titlebarBackgroundEnd})`
-    : win?.titlebarBackground ?? '#0f1a2e'
-  const titlebarFg = win?.titlebarForeground ?? '#8faabe'
-  const sidebarBg = win?.sidebarBackground
-  const sidebarFg = win?.sidebarForeground
-  const buttonBg = win?.buttonBackground
+  // Use preview theme (from hover) if available, otherwise use config
+  const effectiveWin = previewTheme ?? win
+  const accentColor = effectiveWin?.accentColor ?? '#38bdf8'
+  const titlebarBg = effectiveWin?.titlebarBackgroundEnd
+    ? `linear-gradient(to right, ${effectiveWin.titlebarBackground ?? '#0f1a2e'}, ${effectiveWin.titlebarBackgroundEnd})`
+    : effectiveWin?.titlebarBackground ?? '#0f1a2e'
+  const titlebarFg = effectiveWin?.titlebarForeground ?? '#8faabe'
+  const sidebarBg = effectiveWin?.sidebarBackground
+  const sidebarFg = effectiveWin?.sidebarForeground
+  const buttonBg = effectiveWin?.buttonBackground
   const emoji = win?.emoji
 
   const createSession = useCallback(async (name: string, command?: string, idle?: boolean) => {
@@ -46,12 +54,14 @@ function App() {
     initializedRef.current = true
 
     async function init() {
-      const [projectConfig, projectPath] = await Promise.all([
+      const [projectConfig, projectPath, savedSidebarMode] = await Promise.all([
         window.forgeterm.getProjectConfig(),
         window.forgeterm.getProjectPath(),
+        window.forgeterm.getSidebarMode(),
       ])
 
       setConfig(projectConfig)
+      if (savedSidebarMode) setSidebarMode(savedSidebarMode)
       const folder = projectPath.split('/').pop() || 'ForgeTerm'
       setFolderName(folder)
       document.title = projectConfig?.projectName || folder
@@ -104,10 +114,47 @@ function App() {
     return window.forgeterm.onOpenProjectSwitcher(() => setShowProjectSwitcher(true))
   }, [])
 
+  const cycleSidebarMode = useCallback(() => {
+    setSidebarMode((prev) => {
+      const next = prev === 'full' ? 'compact' : prev === 'compact' ? 'hidden' : 'full'
+      window.forgeterm.saveSidebarMode(next)
+      return next
+    })
+  }, [])
+
+  const handleThemePreview = useCallback((windowTheme: WindowTheme | null) => {
+    setPreviewTheme(windowTheme)
+  }, [])
+
+  const adjustCurrentThemeBrightness = useCallback(async (delta: number) => {
+    const currentAccent = config?.window?.accentColor ?? '#38bdf8'
+    const newAccent = adjustAccentBrightness(currentAccent, delta)
+    const newWindow = generateWindowTheme(newAccent)
+    const terminal = getTerminalTheme(config?.terminalTheme ?? 'dark')
+    terminal.cursor = newAccent
+    const updated: ForgeTermConfig = {
+      ...config,
+      theme: terminal,
+      window: {
+        ...newWindow,
+        emoji: config?.window?.emoji,
+        themeName: undefined, // no longer a preset
+      },
+    }
+    await window.forgeterm.saveConfig(updated)
+    setConfig(updated)
+  }, [config])
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey
+
+      // Cmd+B: cycle sidebar mode
+      if (mod && !e.shiftKey && e.key === 'b') {
+        e.preventDefault()
+        cycleSidebarMode()
+      }
 
       // Cmd+N or Cmd+T: new session
       if (mod && !e.shiftKey && (e.key === 'n' || e.key === 't')) {
@@ -157,6 +204,16 @@ function App() {
         setShowHelp(true)
       }
 
+      // Cmd+Shift+= / Cmd+Shift+-: lighten/darken accent
+      if (mod && e.shiftKey && (e.key === '+' || e.key === '=')) {
+        e.preventDefault()
+        adjustCurrentThemeBrightness(7)
+      }
+      if (mod && e.shiftKey && e.key === '_') {
+        e.preventDefault()
+        adjustCurrentThemeBrightness(-7)
+      }
+
       // Escape: close modals
       if (e.key === 'Escape') {
         setShowModal(false)
@@ -169,7 +226,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeSessionId, setActive])
+  }, [activeSessionId, setActive, cycleSidebarMode, adjustCurrentThemeBrightness])
 
   const handleNewSession = useCallback(async (name: string, command?: string) => {
     setShowModal(false)
@@ -214,23 +271,49 @@ function App() {
       style={{ '--accent-color': accentColor } as React.CSSProperties}
     >
       <div className="titlebar" style={{ background: titlebarBg }}>
+        <button
+          className="sidebar-toggle-btn"
+          onClick={cycleSidebarMode}
+          title={`Toggle Sidebar (${navigator.platform.includes('Mac') ? '\u2318' : 'Ctrl+'}B)`}
+          style={{ color: titlebarFg }}
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="1" y="2" width="14" height="12" rx="2" />
+            <line x1="5.5" y1="2" x2="5.5" y2="14" />
+            {sidebarMode === 'hidden' && <line x1="3" y1="8" x2="5" y2="8" strokeWidth="1.5" />}
+          </svg>
+        </button>
         <span className="titlebar-text" style={{ color: titlebarFg }}>
           {emoji && <span className="titlebar-emoji">{emoji}</span>}
           {displayName}
         </span>
+        <button
+          className="open-project-btn"
+          onClick={() => setShowProjectSwitcher(true)}
+          title="Open Project (Cmd+P)"
+          style={{ background: accentColor }}
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 4.5V13a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 14 13V6.5A1.5 1.5 0 0 0 12.5 5H8L6.5 3H3.5A1.5 1.5 0 0 0 2 4.5z" />
+          </svg>
+          Open
+        </button>
       </div>
       <div className="main-layout">
-        <Sidebar
-          accentColor={accentColor}
-          sidebarBackground={sidebarBg}
-          sidebarForeground={sidebarFg}
-          buttonBackground={buttonBg}
-          onNewSession={() => setShowModal(true)}
-          onDuplicateSession={(name, command) => createSession(name, command)}
-          onProjectSettings={() => setShowProjectSettings(true)}
-          onThemeEditor={() => setShowThemeEditor(true)}
-          onHelp={() => setShowHelp(true)}
-        />
+        {sidebarMode !== 'hidden' && (
+          <Sidebar
+            mode={sidebarMode}
+            accentColor={accentColor}
+            sidebarBackground={sidebarBg}
+            sidebarForeground={sidebarFg}
+            buttonBackground={buttonBg}
+            onNewSession={() => setShowModal(true)}
+            onDuplicateSession={(name, command) => createSession(name, command)}
+            onProjectSettings={() => setShowProjectSettings(true)}
+            onThemeEditor={() => setShowThemeEditor(true)}
+            onHelp={() => setShowHelp(true)}
+          />
+        )}
         <div className="terminal-area">
           {sessions.map((session) => (
             <TerminalView
@@ -261,7 +344,8 @@ function App() {
         <ThemeEditor
           config={config}
           onSave={handleSaveTheme}
-          onCancel={() => setShowThemeEditor(false)}
+          onCancel={() => { setShowThemeEditor(false); setPreviewTheme(null) }}
+          onPreview={handleThemePreview}
         />
       )}
 

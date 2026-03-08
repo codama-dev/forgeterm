@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSessionStore, type Session } from '../store/sessionStore'
 
-interface ContextMenuState {
+interface MenuState {
+  sessionId: string
   x: number
   y: number
-  sessionId: string
 }
 
 interface SidebarProps {
+  mode: 'full' | 'compact'
   accentColor: string
   sidebarBackground?: string
   sidebarForeground?: string
@@ -20,6 +21,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
+  mode,
   accentColor,
   sidebarBackground,
   sidebarForeground,
@@ -30,10 +32,11 @@ export function Sidebar({
   onThemeEditor,
   onHelp,
 }: SidebarProps) {
-  const { sessions, activeSessionId, setActive } = useSessionStore()
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const { sessions, activeSessionId, setActive, removeSession } = useSessionStore()
+  const [menu, setMenu] = useState<MenuState | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
+  const [repoUrl, setRepoUrl] = useState<string | null | undefined>(undefined)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const btnBg = buttonBackground ?? '#1c2d4d'
@@ -46,15 +49,26 @@ export function Sidebar({
     }
   }, [editingId])
 
+  // Fetch repo URL once
   useEffect(() => {
-    const handleClick = () => setContextMenu(null)
+    window.forgeterm.getRepoUrl().then(setRepoUrl)
+  }, [])
+
+  useEffect(() => {
+    const handleClick = () => setMenu(null)
     window.addEventListener('click', handleClick)
     return () => window.removeEventListener('click', handleClick)
   }, [])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, sessionId: string) => {
     e.preventDefault()
-    setContextMenu({ x: e.clientX, y: e.clientY, sessionId })
+    setMenu({ sessionId, x: e.clientX, y: e.clientY })
+  }, [])
+
+  const openDotsMenu = useCallback((e: React.MouseEvent, sessionId: string) => {
+    e.stopPropagation()
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setMenu({ sessionId, x: rect.right + 4, y: rect.top })
   }, [])
 
   const handlePlay = useCallback(async (id: string) => {
@@ -67,6 +81,11 @@ export function Sidebar({
     useSessionStore.getState().setRunning(id, false)
   }, [])
 
+  const handleDelete = useCallback(async (id: string) => {
+    await window.forgeterm.killSession(id)
+    removeSession(id)
+  }, [removeSession])
+
   const handleDuplicate = useCallback((id: string) => {
     const session = sessions.find((s) => s.id === id)
     if (session) {
@@ -74,15 +93,14 @@ export function Sidebar({
     }
   }, [sessions, onDuplicateSession])
 
-  const handleRename = useCallback(() => {
-    if (!contextMenu) return
-    const session = sessions.find((s) => s.id === contextMenu.sessionId)
+  const startRename = useCallback((id: string) => {
+    const session = sessions.find((s) => s.id === id)
     if (session) {
       setEditingId(session.id)
       setEditName(session.name)
     }
-    setContextMenu(null)
-  }, [contextMenu, sessions])
+    setMenu(null)
+  }, [sessions])
 
   const commitRename = useCallback(async () => {
     if (editingId && editName.trim()) {
@@ -92,15 +110,17 @@ export function Sidebar({
     setEditingId(null)
   }, [editingId, editName])
 
+  const compact = mode === 'compact'
+
   return (
     <div
-      className="sidebar"
+      className={`sidebar ${compact ? 'sidebar-compact' : ''}`}
       style={{
         ...(sidebarBackground ? { background: sidebarBackground } : {}),
         ...(sidebarForeground ? { color: sidebarForeground } : {}),
       }}
     >
-      <div className="sidebar-header" style={{ color: sidebarFg }}>Sessions</div>
+      {!compact && <div className="sidebar-header" style={{ color: sidebarFg }}>Sessions</div>}
       <div className="sidebar-sessions">
         {sessions.map((session: Session) => (
           <div
@@ -113,8 +133,9 @@ export function Sidebar({
             }
             onClick={() => setActive(session.id)}
             onContextMenu={(e) => handleContextMenu(e, session.id)}
+            title={compact ? session.name : undefined}
           >
-            {editingId === session.id ? (
+            {editingId === session.id && !compact ? (
               <input
                 ref={editInputRef}
                 className="rename-input"
@@ -133,47 +154,52 @@ export function Sidebar({
                   className={`session-indicator ${session.running ? 'running' : 'stopped'}`}
                   style={session.running ? { color: accentColor } : undefined}
                 />
-                <span className="session-name">{session.name}</span>
-                <div className="session-controls">
-                  <button
-                    className="session-ctrl-btn duplicate"
-                    onClick={(e) => { e.stopPropagation(); handleDuplicate(session.id) }}
-                    title="Duplicate"
-                  >
-                    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                      <rect x="5" y="1" width="10" height="10" rx="1.5" />
-                      <path d="M1 5v9.5a.5.5 0 0 0 .5.5H11" />
-                    </svg>
-                  </button>
-                  {session.running ? (
-                    <button
-                      className="session-ctrl-btn stop"
-                      onClick={(e) => { e.stopPropagation(); handleStop(session.id) }}
-                      title="Stop"
-                    >
-                      <svg width="10" height="10" viewBox="0 0 10 10">
-                        <rect x="1" y="1" width="8" height="8" rx="1" fill="currentColor" />
-                      </svg>
-                    </button>
-                  ) : (
-                    <button
-                      className="session-ctrl-btn play"
-                      onClick={(e) => { e.stopPropagation(); handlePlay(session.id) }}
-                      title="Start"
-                      style={{ color: accentColor }}
-                    >
-                      <svg width="10" height="10" viewBox="0 0 10 10">
-                        <path d="M2 1l7 4-7 4V1z" fill="currentColor" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
+                {!compact && (
+                  <>
+                    <span className="session-name">{session.name}</span>
+                    <div className="session-controls">
+                      {session.running ? (
+                        <button
+                          className="session-ctrl-btn"
+                          onClick={(e) => { e.stopPropagation(); handleStop(session.id) }}
+                          title="Stop"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <rect x="3" y="3" width="10" height="10" rx="1.5" />
+                          </svg>
+                        </button>
+                      ) : (
+                        <button
+                          className="session-ctrl-btn accent"
+                          onClick={(e) => { e.stopPropagation(); handlePlay(session.id) }}
+                          title="Start"
+                          style={{ color: accentColor }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M4 2.5l10 5.5-10 5.5V2.5z" />
+                          </svg>
+                        </button>
+                      )}
+                      <button
+                        className="session-ctrl-btn"
+                        onClick={(e) => openDotsMenu(e, session.id)}
+                        title="More actions"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                          <circle cx="8" cy="3" r="1.5" />
+                          <circle cx="8" cy="8" r="1.5" />
+                          <circle cx="8" cy="13" r="1.5" />
+                        </svg>
+                      </button>
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>
         ))}
       </div>
-      <div className="sidebar-actions">
+      <div className={`sidebar-actions ${compact ? 'sidebar-actions-compact' : ''}`}>
         <button
           className="sidebar-action-btn"
           onClick={onNewSession}
@@ -223,35 +249,65 @@ export function Sidebar({
         </button>
       </div>
 
-      {contextMenu && (
+      {menu && (
         <div
           className="context-menu"
-          style={{ top: contextMenu.y, left: contextMenu.x }}
+          style={{ top: menu.y, left: menu.x }}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="context-menu-item" onClick={() => {
-            const id = contextMenu.sessionId
-            setContextMenu(null)
+            const id = menu.sessionId
+            setMenu(null)
             handlePlay(id)
           }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 2.5l10 5.5-10 5.5V2.5z" /></svg>
             Restart
           </div>
           <div className="context-menu-item" onClick={() => {
-            const id = contextMenu.sessionId
-            setContextMenu(null)
+            const id = menu.sessionId
+            setMenu(null)
             handleStop(id)
           }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="10" height="10" rx="1.5" /></svg>
             Kill
           </div>
           <div className="context-menu-item" onClick={() => {
-            const id = contextMenu.sessionId
-            setContextMenu(null)
+            const id = menu.sessionId
+            setMenu(null)
             handleDuplicate(id)
           }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="5.5" y="2" width="8.5" height="8.5" rx="1.5" /><path d="M2 5.5v7a1.5 1.5 0 0 0 1.5 1.5h7" /></svg>
             Duplicate
           </div>
-          <div className="context-menu-item" onClick={handleRename}>
+          <div className="context-menu-item" onClick={() => startRename(menu.sessionId)}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" /></svg>
             Rename
+          </div>
+          <div className="context-menu-divider" />
+          <div className="context-menu-item" onClick={() => {
+            setMenu(null)
+            window.forgeterm.revealInFinder()
+          }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4.5V13a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 14 13V6.5A1.5 1.5 0 0 0 12.5 5H8L6.5 3H3.5A1.5 1.5 0 0 0 2 4.5z" /></svg>
+            Reveal in Finder
+          </div>
+          {repoUrl && (
+            <div className="context-menu-item" onClick={() => {
+              setMenu(null)
+              window.forgeterm.openExternal(repoUrl)
+            }}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" /></svg>
+              Open Repo
+            </div>
+          )}
+          <div className="context-menu-divider" />
+          <div className="context-menu-item danger" onClick={() => {
+            const id = menu.sessionId
+            setMenu(null)
+            handleDelete(id)
+          }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l10 10M13 3L3 13" /></svg>
+            Delete
           </div>
         </div>
       )}

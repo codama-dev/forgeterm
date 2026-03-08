@@ -1,11 +1,16 @@
-import { app, BrowserWindow, ipcMain, Menu, dialog, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, dialog, shell, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
+import { execSync } from 'node:child_process'
 import { PtyManager } from './ptyManager'
-import type { ForgeTermConfig, RecentProject } from '../shared/types'
+import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor } from '../shared/types'
+import { generateWindowTheme, getTerminalTheme, PRESET_THEMES } from '../src/themes'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// Enable Chrome DevTools Protocol for external automation (e.g. Playwright)
+app.commandLine.appendSwitch('remote-debugging-port', '9222')
 
 process.env.APP_ROOT = path.join(__dirname, '..')
 
@@ -44,10 +49,174 @@ function saveRecentProject(projectPath: string) {
   const projects = loadRecentProjects()
   const config = loadConfig(projectPath)
   const name = config?.projectName || path.basename(projectPath)
+  const workspace = getWorkspaceForProject(projectPath)
   const filtered = projects.filter((p) => p.path !== projectPath)
-  filtered.unshift({ path: projectPath, name, lastOpened: Date.now() })
+  filtered.unshift({ path: projectPath, name, lastOpened: Date.now(), workspace })
   const trimmed = filtered.slice(0, 20)
   fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(trimmed, null, 2), 'utf-8')
+}
+
+// --- Workspaces ---
+
+function getWorkspacesPath(): string {
+  return path.join(app.getPath('userData'), 'workspaces.json')
+}
+
+function loadWorkspaces(): Workspace[] {
+  try {
+    const raw = fs.readFileSync(getWorkspacesPath(), 'utf-8')
+    return JSON.parse(raw) as Workspace[]
+  } catch {
+    return []
+  }
+}
+
+function saveWorkspaces(workspaces: Workspace[]) {
+  fs.writeFileSync(getWorkspacesPath(), JSON.stringify(workspaces, null, 2), 'utf-8')
+}
+
+function setProjectWorkspace(projectPath: string, workspaceName: string) {
+  const workspaces = loadWorkspaces()
+  // Remove project from any existing workspace
+  for (const ws of workspaces) {
+    ws.projects = ws.projects.filter((p) => p !== projectPath)
+  }
+  // Add to target workspace (create if needed)
+  let target = workspaces.find((ws) => ws.name === workspaceName)
+  if (!target) {
+    target = { name: workspaceName, projects: [] }
+    workspaces.push(target)
+  }
+  target.projects.push(projectPath)
+  // Remove empty workspaces
+  const cleaned = workspaces.filter((ws) => ws.projects.length > 0)
+  saveWorkspaces(cleaned)
+}
+
+function removeProjectFromWorkspace(projectPath: string) {
+  const workspaces = loadWorkspaces()
+  for (const ws of workspaces) {
+    ws.projects = ws.projects.filter((p) => p !== projectPath)
+  }
+  const cleaned = workspaces.filter((ws) => ws.projects.length > 0)
+  saveWorkspaces(cleaned)
+}
+
+function getWorkspaceForProject(projectPath: string): string | undefined {
+  const workspaces = loadWorkspaces()
+  return workspaces.find((ws) => ws.projects.includes(projectPath))?.name
+}
+
+// --- Window tiling ---
+
+function calculateTilePositions(count: number, workArea: Electron.Rectangle): Electron.Rectangle[] {
+  const { x, y, width, height } = workArea
+  const gap = 0
+
+  if (count <= 0) return []
+  if (count === 1) return [{ x, y, width, height }]
+
+  if (count === 2) {
+    const w = Math.floor(width / 2)
+    return [
+      { x, y, width: w, height },
+      { x: x + w + gap, y, width: width - w - gap, height },
+    ]
+  }
+
+  if (count === 3) {
+    // Master left, two stacked right
+    const masterW = Math.floor(width / 2)
+    const stackW = width - masterW - gap
+    const halfH = Math.floor(height / 2)
+    return [
+      { x, y, width: masterW, height },
+      { x: x + masterW + gap, y, width: stackW, height: halfH },
+      { x: x + masterW + gap, y: y + halfH + gap, width: stackW, height: height - halfH - gap },
+    ]
+  }
+
+  if (count === 4) {
+    // 2x2 grid
+    const w = Math.floor(width / 2)
+    const h = Math.floor(height / 2)
+    return [
+      { x, y, width: w, height: h },
+      { x: x + w + gap, y, width: width - w - gap, height: h },
+      { x, y: y + h + gap, width: w, height: height - h - gap },
+      { x: x + w + gap, y: y + h + gap, width: width - w - gap, height: height - h - gap },
+    ]
+  }
+
+  if (count === 5) {
+    // Top row: 3, bottom row: 2
+    const h = Math.floor(height / 2)
+    const topW = Math.floor(width / 3)
+    const botW = Math.floor(width / 2)
+    return [
+      { x, y, width: topW, height: h },
+      { x: x + topW + gap, y, width: topW, height: h },
+      { x: x + topW * 2 + gap * 2, y, width: width - topW * 2 - gap * 2, height: h },
+      { x, y: y + h + gap, width: botW, height: height - h - gap },
+      { x: x + botW + gap, y: y + h + gap, width: width - botW - gap, height: height - h - gap },
+    ]
+  }
+
+  // 6: 2x3 grid (2 rows, 3 columns)
+  const colW = Math.floor(width / 3)
+  const rowH = Math.floor(height / 2)
+  const positions: Electron.Rectangle[] = []
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 3; col++) {
+      const isLastCol = col === 2
+      const isLastRow = row === 1
+      positions.push({
+        x: x + col * (colW + gap),
+        y: y + row * (rowH + gap),
+        width: isLastCol ? width - colW * 2 - gap * 2 : colW,
+        height: isLastRow ? height - rowH - gap : rowH,
+      })
+    }
+  }
+  return positions.slice(0, count)
+}
+
+function tileWindows(windows: BrowserWindow[], displayIndices?: number[]) {
+  if (windows.length === 0) return
+
+  const allDisplays = screen.getAllDisplays()
+
+  // Determine which displays to use
+  let targetDisplays: Electron.Display[]
+  if (displayIndices && displayIndices.length > 0) {
+    targetDisplays = displayIndices
+      .filter((i) => i >= 0 && i < allDisplays.length)
+      .map((i) => allDisplays[i])
+    if (targetDisplays.length === 0) targetDisplays = [allDisplays[0]]
+  } else {
+    targetDisplays = [screen.getDisplayMatching(windows[0].getBounds())]
+  }
+
+  // Distribute windows across selected displays as evenly as possible
+  const screenCount = targetDisplays.length
+  const base = Math.floor(windows.length / screenCount)
+  const extra = windows.length % screenCount
+
+  const allTiles: Electron.Rectangle[] = []
+  let windowIdx = 0
+  for (let s = 0; s < screenCount; s++) {
+    const count = base + (s < extra ? 1 : 0)
+    if (count === 0) continue
+    const tiles = calculateTilePositions(count, targetDisplays[s].workArea)
+    allTiles.push(...tiles)
+    windowIdx += count
+  }
+
+  windows.forEach((win, i) => {
+    if (allTiles[i]) {
+      win.setBounds(allTiles[i], true)
+    }
+  })
 }
 
 const DEFAULT_CONFIG: ForgeTermConfig = {
@@ -81,6 +250,55 @@ const DEFAULT_CONFIG: ForgeTermConfig = {
     themeName: 'midnight',
   },
   sessions: [],
+}
+
+// --- Peacock sync ---
+
+function readPeacockColor(projectPath: string): string | null {
+  const settingsPath = path.join(projectPath, '.vscode', 'settings.json')
+  try {
+    const raw = fs.readFileSync(settingsPath, 'utf-8')
+    const settings = JSON.parse(raw)
+    const color = settings['peacock.color']
+    if (typeof color === 'string' && /^#?[0-9a-fA-F]{6}$/.test(color.trim())) {
+      return color.startsWith('#') ? color.trim() : `#${color.trim()}`
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+function autoAssignThemeIfNeeded(projectPath: string) {
+  const config = loadConfig(projectPath)
+  // Only apply if no existing window theme
+  if (config?.window?.accentColor) return
+
+  // Try Peacock color first
+  const peacockColor = readPeacockColor(projectPath)
+  if (peacockColor) {
+    const windowTheme = generateWindowTheme(peacockColor)
+    const terminalColors = getTerminalTheme('dark')
+    const newConfig: ForgeTermConfig = {
+      ...config,
+      window: { ...windowTheme, themeName: 'peacock' },
+      theme: terminalColors,
+      terminalTheme: 'dark',
+    }
+    saveConfig(projectPath, newConfig)
+    return
+  }
+
+  // "Surprise me" - assign a random preset theme
+  const preset = PRESET_THEMES[Math.floor(Math.random() * PRESET_THEMES.length)]
+  const terminalColors = getTerminalTheme('dark')
+  const newConfig: ForgeTermConfig = {
+    ...config,
+    window: { ...preset.window, themeName: preset.id },
+    theme: terminalColors,
+    terminalTheme: 'dark',
+  }
+  saveConfig(projectPath, newConfig)
 }
 
 function loadConfig(projectPath: string): ForgeTermConfig | null {
@@ -122,7 +340,28 @@ function watchConfig(win: BrowserWindow, projectPath: string) {
   }
 }
 
+function findWindowForProject(projectPath: string): BrowserWindow | null {
+  for (const [winId, state] of windowStates) {
+    if (state.projectPath === projectPath) {
+      const win = BrowserWindow.fromId(winId)
+      if (win && !win.isDestroyed()) return win
+    }
+  }
+  return null
+}
+
+function focusOrCreateWindow(projectPath: string): BrowserWindow {
+  const existing = findWindowForProject(projectPath)
+  if (existing) {
+    if (existing.isMinimized()) existing.restore()
+    existing.focus()
+    return existing
+  }
+  return createProjectWindow(projectPath)
+}
+
 function createProjectWindow(projectPath: string) {
+  autoAssignThemeIfNeeded(projectPath)
   saveRecentProject(projectPath)
   const folderName = path.basename(projectPath)
 
@@ -170,6 +409,188 @@ function getStateForEvent(event: Electron.IpcMainInvokeEvent | Electron.IpcMainE
   const win = BrowserWindow.fromWebContents(event.sender)
   if (!win) return null
   return windowStates.get(win.id) ?? null
+}
+
+// --- Editor detection for Project Manager import ---
+
+function getEditorCandidates(): { name: string; path: string }[] {
+  const home = app.getPath('home')
+  const pmSuffix = 'User/globalStorage/alefragnani.project-manager/projects.json'
+
+  const macEditors = [
+    { name: 'VS Code', dir: 'Code' },
+    { name: 'Cursor', dir: 'Cursor' },
+    { name: 'Windsurf', dir: 'Windsurf' },
+    { name: 'VSCodium', dir: 'VSCodium' },
+    { name: 'VS Code Insiders', dir: 'Code - Insiders' },
+  ]
+
+  const candidates: { name: string; path: string }[] = []
+
+  // macOS paths
+  for (const editor of macEditors) {
+    candidates.push({
+      name: editor.name,
+      path: path.join(home, 'Library/Application Support', editor.dir, pmSuffix),
+    })
+  }
+
+  // Linux paths
+  for (const editor of macEditors) {
+    candidates.push({
+      name: editor.name,
+      path: path.join(home, '.config', editor.dir, pmSuffix),
+    })
+  }
+
+  return candidates
+}
+
+function detectProjectManagerFiles(): DetectedEditor[] {
+  return getEditorCandidates()
+    .filter((c) => fs.existsSync(c.path))
+    .map((c) => ({ name: c.name, path: c.path }))
+}
+
+function getImportDismissedPath(): string {
+  return path.join(app.getPath('userData'), 'import-dismissed.json')
+}
+
+function isImportDismissed(): boolean {
+  try {
+    return fs.existsSync(getImportDismissedPath())
+  } catch {
+    return false
+  }
+}
+
+function importProjectsFromFile(filePath: string): ImportResult | null {
+  interface VSCodeProject {
+    name: string
+    rootPath: string
+    tags: string[]
+    enabled: boolean
+    workspace?: string
+  }
+
+  let vsProjects: VSCodeProject[]
+  try {
+    vsProjects = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+  } catch {
+    return null
+  }
+
+  const enabledProjects = vsProjects.filter((p) => p.enabled && p.rootPath)
+
+  const existingRecent = loadRecentProjects()
+  const existingPaths = new Set(existingRecent.map((p) => p.path))
+  const existingWorkspaces = loadWorkspaces()
+  const existingWsNames = new Set(existingWorkspaces.map((ws) => ws.name))
+
+  const wsMap = new Map<string, Set<string>>()
+  for (const ws of existingWorkspaces) {
+    wsMap.set(ws.name, new Set(ws.projects))
+  }
+
+  const tagProjects = new Map<string, string[]>()
+  for (const p of enabledProjects) {
+    if (p.tags && p.tags.length > 0) {
+      for (const tag of p.tags) {
+        if (!tagProjects.has(tag)) tagProjects.set(tag, [])
+        tagProjects.get(tag)!.push(p.rootPath)
+      }
+    }
+  }
+
+  const tagWorkspaces = new Map<string, string[]>()
+  for (const [tag, paths] of tagProjects) {
+    if (paths.length >= 2) {
+      tagWorkspaces.set(tag, paths)
+    }
+  }
+
+  let projectsAdded = 0
+  const workspacesCreated: string[] = []
+  const workspacesUpdated = new Set<string>()
+
+  const newRecent = [...existingRecent]
+  for (const p of enabledProjects) {
+    if (!existingPaths.has(p.rootPath)) {
+      newRecent.push({
+        path: p.rootPath,
+        name: p.name,
+        lastOpened: 0,
+        workspace: p.workspace || undefined,
+      })
+      existingPaths.add(p.rootPath)
+      projectsAdded++
+    } else if (p.workspace) {
+      const existing = newRecent.find((r) => r.path === p.rootPath)
+      if (existing && existing.workspace !== p.workspace) {
+        existing.workspace = p.workspace
+      }
+    }
+
+    if (p.workspace) {
+      if (!wsMap.has(p.workspace)) {
+        wsMap.set(p.workspace, new Set())
+      }
+      const ws = wsMap.get(p.workspace)!
+      if (!ws.has(p.rootPath)) {
+        ws.add(p.rootPath)
+        if (existingWsNames.has(p.workspace)) {
+          workspacesUpdated.add(p.workspace)
+        }
+      }
+    }
+  }
+
+  const projectsWithExplicitWs = new Set(
+    enabledProjects.filter((p) => p.workspace).map((p) => p.rootPath),
+  )
+  for (const [tag, paths] of tagWorkspaces) {
+    const unassigned = paths.filter((p) => !projectsWithExplicitWs.has(p))
+    if (unassigned.length >= 2) {
+      if (!wsMap.has(tag)) {
+        wsMap.set(tag, new Set())
+      }
+      const ws = wsMap.get(tag)!
+      for (const p of unassigned) {
+        ws.add(p)
+      }
+      for (const rp of newRecent) {
+        if (unassigned.includes(rp.path) && !rp.workspace) {
+          rp.workspace = tag
+        }
+      }
+    }
+  }
+
+  for (const [name] of wsMap) {
+    if (!existingWsNames.has(name)) {
+      workspacesCreated.push(name)
+    }
+  }
+
+  fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(newRecent, null, 2), 'utf-8')
+
+  const finalWorkspaces: Workspace[] = []
+  for (const [name, paths] of wsMap) {
+    if (paths.size === 0) continue
+    const existing = existingWorkspaces.find((ws) => ws.name === name)
+    finalWorkspaces.push({
+      name,
+      projects: Array.from(paths),
+      arrange: existing?.arrange ?? true,
+    })
+  }
+  saveWorkspaces(finalWorkspaces)
+
+  return {
+    projectsAdded,
+    workspacesCreated,
+    workspacesUpdated: Array.from(workspacesUpdated),
+  }
 }
 
 function setupIpcHandlers() {
@@ -266,7 +687,7 @@ function setupIpcHandlers() {
     })
     if (result.canceled || result.filePaths.length === 0) return null
     const folderPath = result.filePaths[0]
-    createProjectWindow(folderPath)
+    focusOrCreateWindow(folderPath)
     return folderPath
   })
 
@@ -274,8 +695,243 @@ function setupIpcHandlers() {
     return loadRecentProjects()
   })
 
-  ipcMain.handle('projects:open', (_event, projectPath: string) => {
-    createProjectWindow(projectPath)
+  ipcMain.handle('projects:open', (event, projectPath: string) => {
+    const sourceWin = BrowserWindow.fromWebContents(event.sender)
+    const targetWin = focusOrCreateWindow(projectPath)
+    // Ensure new window gets focus after the source window's modal dismissal
+    if (sourceWin && targetWin !== sourceWin) {
+      setTimeout(() => targetWin.focus(), 100)
+    }
+  })
+
+  ipcMain.handle('workspaces:get', () => {
+    return loadWorkspaces()
+  })
+
+  ipcMain.handle('workspaces:set-project', (_event, projectPath: string, workspaceName: string) => {
+    setProjectWorkspace(projectPath, workspaceName)
+  })
+
+  ipcMain.handle('workspaces:remove-project', (_event, projectPath: string) => {
+    removeProjectFromWorkspace(projectPath)
+  })
+
+  ipcMain.handle('workspaces:open', (event, workspaceName: string, arrange: boolean) => {
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find((w) => w.name === workspaceName)
+    if (ws) {
+      const sourceWin = BrowserWindow.fromWebContents(event.sender)
+      const disabled = new Set(ws.disabledProjects || [])
+      const enabledPaths = ws.projects.filter((p) => !disabled.has(p))
+      const windows: BrowserWindow[] = []
+      for (const projectPath of enabledPaths) {
+        windows.push(focusOrCreateWindow(projectPath))
+      }
+      if (arrange) {
+        // Look up screen preferences for current display count
+        const displayCount = screen.getAllDisplays().length
+        const key = String(displayCount)
+        const indices = ws.screenPrefs?.[key]
+        tileWindows(windows, indices)
+      }
+      // Ensure opened windows get focus instead of the source window
+      const lastNew = windows[windows.length - 1]
+      if (sourceWin && lastNew && lastNew !== sourceWin) {
+        setTimeout(() => lastNew.focus(), 100)
+      }
+    }
+  })
+
+  ipcMain.handle('workspaces:set-arrange', (_event, workspaceName: string, arrange: boolean) => {
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find((w) => w.name === workspaceName)
+    if (ws) {
+      ws.arrange = arrange
+      saveWorkspaces(workspaces)
+    }
+  })
+
+  ipcMain.handle('workspaces:set-screen-prefs', (_event, workspaceName: string, displayCount: number, indices: number[]) => {
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find((w) => w.name === workspaceName)
+    if (ws) {
+      if (!ws.screenPrefs) ws.screenPrefs = {}
+      ws.screenPrefs[String(displayCount)] = indices
+      saveWorkspaces(workspaces)
+    }
+  })
+
+  ipcMain.handle('displays:get', () => {
+    const allDisplays = screen.getAllDisplays()
+    const primary = screen.getPrimaryDisplay()
+    return allDisplays.map((d, i) => ({
+      id: d.id,
+      index: i,
+      bounds: d.bounds,
+      workArea: d.workArea,
+      isPrimary: d.id === primary.id,
+    }))
+  })
+
+  ipcMain.handle('workspaces:toggle-project', (_event, workspaceName: string, projectPath: string) => {
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find((w) => w.name === workspaceName)
+    if (ws) {
+      const disabled = new Set(ws.disabledProjects || [])
+      if (disabled.has(projectPath)) {
+        disabled.delete(projectPath)
+      } else {
+        disabled.add(projectPath)
+      }
+      ws.disabledProjects = disabled.size > 0 ? Array.from(disabled) : undefined
+      saveWorkspaces(workspaces)
+    }
+  })
+
+  ipcMain.handle('project:get-sidebar-mode', (event) => {
+    const state = getStateForEvent(event)
+    if (!state) return undefined
+    const projects = loadRecentProjects()
+    const project = projects.find((p) => p.path === state.projectPath)
+    return project?.sidebarMode
+  })
+
+  ipcMain.handle('project:save-sidebar-mode', (event, mode: string) => {
+    const state = getStateForEvent(event)
+    if (!state) return
+    const projects = loadRecentProjects()
+    const project = projects.find((p) => p.path === state.projectPath)
+    if (project) {
+      project.sidebarMode = mode as 'full' | 'compact' | 'hidden'
+      fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
+    }
+  })
+
+  ipcMain.handle('import:vscode-projects', async () => {
+    const detected = detectProjectManagerFiles()
+    let defaultPath: string | undefined
+    if (detected.length > 0) {
+      defaultPath = path.dirname(detected[0].path)
+    }
+
+    const dialogResult = await dialog.showOpenDialog({
+      title: 'Select projects JSON file to import',
+      defaultPath,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+      properties: ['openFile'],
+    })
+    if (dialogResult.canceled || dialogResult.filePaths.length === 0) return null
+    return importProjectsFromFile(dialogResult.filePaths[0])
+  })
+
+  ipcMain.handle('import:from-path', (_event, filePath: string) => {
+    return importProjectsFromFile(filePath)
+  })
+
+  ipcMain.handle('import:detect-editors', () => {
+    return detectProjectManagerFiles()
+  })
+
+  ipcMain.handle('import:should-show-suggestion', () => {
+    if (isImportDismissed()) return false
+    const detected = detectProjectManagerFiles()
+    const recentProjects = loadRecentProjects()
+    // Only show suggestion if we found editors AND user has few projects (first-time feel)
+    return detected.length > 0 && recentProjects.length <= 1
+  })
+
+  ipcMain.handle('import:dismiss-suggestion', () => {
+    fs.writeFileSync(getImportDismissedPath(), JSON.stringify({ dismissed: true }), 'utf-8')
+  })
+
+  ipcMain.handle('projects:remove-recent', (_event, projectPath: string) => {
+    const projects = loadRecentProjects().filter((p) => p.path !== projectPath)
+    fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
+    // Also remove from any workspace
+    removeProjectFromWorkspace(projectPath)
+  })
+
+  ipcMain.handle('workspaces:delete', (_event, workspaceName: string) => {
+    const workspaces = loadWorkspaces().filter((ws) => ws.name !== workspaceName)
+    saveWorkspaces(workspaces)
+    // Clear workspace field from recent projects
+    const projects = loadRecentProjects().map((p) =>
+      p.workspace === workspaceName ? { ...p, workspace: undefined } : p,
+    )
+    fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
+  })
+
+  ipcMain.handle('config:open-data-file', async (_event, which: string) => {
+    const filePath = which === 'workspaces' ? getWorkspacesPath() : getRecentProjectsPath()
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, '[]', 'utf-8')
+    }
+    await shell.openPath(filePath)
+  })
+
+  ipcMain.handle('project:reveal-in-finder', (event) => {
+    const state = getStateForEvent(event)
+    if (state) {
+      shell.showItemInFolder(state.projectPath)
+    }
+  })
+
+  ipcMain.handle('project:get-repo-url', (event) => {
+    const state = getStateForEvent(event)
+    if (!state) return null
+    try {
+      const raw = execSync('git remote get-url origin', {
+        cwd: state.projectPath,
+        encoding: 'utf-8',
+        timeout: 3000,
+      }).trim()
+      // Convert SSH URL to HTTPS
+      const sshMatch = raw.match(/^git@([^:]+):(.+?)(?:\.git)?$/)
+      if (sshMatch) {
+        return `https://${sshMatch[1]}/${sshMatch[2]}`
+      }
+      // Already HTTPS - strip .git suffix
+      return raw.replace(/\.git$/, '')
+    } catch {
+      return null
+    }
+  })
+
+  ipcMain.handle('shell:open-external', (_event, url: string) => {
+    shell.openExternal(url)
+  })
+
+  // --- Favorite themes ---
+
+  const getFavoriteThemesPath = () => path.join(app.getPath('userData'), 'favorite-themes.json')
+
+  ipcMain.handle('themes:get-favorites', () => {
+    try {
+      const raw = fs.readFileSync(getFavoriteThemesPath(), 'utf-8')
+      return JSON.parse(raw) as FavoriteTheme[]
+    } catch {
+      return []
+    }
+  })
+
+  ipcMain.handle('themes:save-favorite', (_event, theme: FavoriteTheme) => {
+    let favorites: FavoriteTheme[] = []
+    try {
+      favorites = JSON.parse(fs.readFileSync(getFavoriteThemesPath(), 'utf-8'))
+    } catch { /* empty */ }
+    // Replace if same name exists
+    favorites = favorites.filter((f) => f.name !== theme.name)
+    favorites.push(theme)
+    fs.writeFileSync(getFavoriteThemesPath(), JSON.stringify(favorites, null, 2), 'utf-8')
+  })
+
+  ipcMain.handle('themes:delete-favorite', (_event, name: string) => {
+    let favorites: FavoriteTheme[] = []
+    try {
+      favorites = JSON.parse(fs.readFileSync(getFavoriteThemesPath(), 'utf-8'))
+    } catch { /* empty */ }
+    favorites = favorites.filter((f) => f.name !== name)
+    fs.writeFileSync(getFavoriteThemesPath(), JSON.stringify(favorites, null, 2), 'utf-8')
   })
 }
 
@@ -315,7 +971,7 @@ function buildMenu() {
               properties: ['openDirectory'],
             })
             if (!result.canceled && result.filePaths.length > 0) {
-              createProjectWindow(result.filePaths[0])
+              focusOrCreateWindow(result.filePaths[0])
             }
           },
         },

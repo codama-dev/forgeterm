@@ -80,6 +80,11 @@ function hslToHex(h: number, s: number, l: number): string {
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`
 }
 
+export function adjustAccentBrightness(accentHex: string, delta: number): string {
+  const [h, s, l] = hexToHsl(accentHex)
+  return hslToHex(h, s, Math.max(10, Math.min(90, l + delta)))
+}
+
 export function generateWindowTheme(accentHex: string): WindowTheme {
   const [h, s] = hexToHsl(accentHex)
   const cs = Math.min(s, 35) // clamp saturation for backgrounds

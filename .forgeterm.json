@@ -2,7 +2,7 @@
   "theme": {
     "background": "#0f172a",
     "foreground": "#e2e8f0",
-    "cursor": "#3af860",
+    "cursor": "#a78bfa",
     "selection": "rgba(56, 189, 248, 0.3)",
     "black": "#1e293b",
     "red": "#f87171",
@@ -18,14 +18,15 @@
     "size": 13
   },
   "window": {
-    "accentColor": "#3af860",
-    "titlebarBackground": "#0b140d",
-    "titlebarBackgroundEnd": "#141f16",
-    "titlebarForeground": "#8bb192",
-    "sidebarBackground": "#0d170f",
-    "sidebarForeground": "#87ab8e",
-    "buttonBackground": "#1d3021",
-    "emoji": "💚"
+    "accentColor": "#a78bfa",
+    "titlebarBackground": "#171328",
+    "titlebarBackgroundEnd": "#211d3c",
+    "titlebarForeground": "#a898c0",
+    "sidebarBackground": "#18152a",
+    "sidebarForeground": "#a898c0",
+    "buttonBackground": "#2a2248",
+    "emoji": "💚",
+    "themeName": "lavender"
   },
   "sessions": [
     {

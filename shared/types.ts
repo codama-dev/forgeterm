@@ -48,6 +48,49 @@ export interface RecentProject {
   path: string
   name: string
   lastOpened: number
+  workspace?: string
+  sidebarMode?: 'full' | 'compact' | 'hidden'
+}
+
+export interface Workspace {
+  name: string
+  projects: string[] // project paths
+  arrange?: boolean // tile windows on open (default true)
+  disabledProjects?: string[] // paths to skip when opening
+  screenPrefs?: Record<string, number[]> // key = display count, value = display indices to use
+}
+
+export interface DisplayInfo {
+  id: number
+  index: number
+  bounds: { x: number; y: number; width: number; height: number }
+  workArea: { x: number; y: number; width: number; height: number }
+  isPrimary: boolean
+}
+
+export interface ImportResult {
+  projectsAdded: number
+  workspacesCreated: string[]
+  workspacesUpdated: string[]
+}
+
+export interface DetectedEditor {
+  name: string
+  path: string
+}
+
+export interface FavoriteTheme {
+  name: string
+  window: {
+    accentColor: string
+    titlebarBackground: string
+    titlebarBackgroundEnd: string
+    titlebarForeground: string
+    sidebarBackground: string
+    sidebarForeground: string
+    buttonBackground: string
+  }
+  terminalMode: 'dark' | 'light'
 }
 
 export interface ForgeTermAPI {
@@ -71,4 +114,28 @@ export interface ForgeTermAPI {
   onOpenProjectSwitcher: (callback: () => void) => () => void
   getRecentProjects: () => Promise<RecentProject[]>
   openProject: (projectPath: string) => Promise<void>
+  getWorkspaces: () => Promise<Workspace[]>
+  setProjectWorkspace: (projectPath: string, workspaceName: string) => Promise<void>
+  removeProjectFromWorkspace: (projectPath: string) => Promise<void>
+  openWorkspace: (workspaceName: string, arrange: boolean) => Promise<void>
+  setWorkspaceArrange: (workspaceName: string, arrange: boolean) => Promise<void>
+  setWorkspaceScreenPrefs: (workspaceName: string, displayCount: number, indices: number[]) => Promise<void>
+  getDisplays: () => Promise<DisplayInfo[]>
+  toggleWorkspaceProject: (workspaceName: string, projectPath: string) => Promise<void>
+  getSidebarMode: () => Promise<'full' | 'compact' | 'hidden' | undefined>
+  saveSidebarMode: (mode: 'full' | 'compact' | 'hidden') => Promise<void>
+  importVSCodeProjects: () => Promise<ImportResult | null>
+  removeRecentProject: (projectPath: string) => Promise<void>
+  deleteWorkspace: (workspaceName: string) => Promise<void>
+  openDataFile: (which: 'workspaces' | 'recent-projects') => Promise<void>
+  revealInFinder: () => Promise<void>
+  getRepoUrl: () => Promise<string | null>
+  openExternal: (url: string) => Promise<void>
+  detectProjectManagerFiles: () => Promise<DetectedEditor[]>
+  importFromPath: (filePath: string) => Promise<ImportResult | null>
+  dismissImportSuggestion: () => Promise<void>
+  shouldShowImportSuggestion: () => Promise<boolean>
+  getFavoriteThemes: () => Promise<FavoriteTheme[]>
+  saveFavoriteTheme: (theme: FavoriteTheme) => Promise<void>
+  deleteFavoriteTheme: (name: string) => Promise<void>
 }

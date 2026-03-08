@@ -12,6 +12,17 @@ interface TerminalViewProps {
 
 const terminals = new Map<string, { terminal: Terminal; fitAddon: FitAddon }>()
 
+// Single shared data listener - dispatches to the right terminal by session ID
+const dataHandlers = new Map<string, (data: string) => void>()
+let unsubSharedDataListener: (() => void) | null = null
+
+function ensureSharedDataListener() {
+  if (unsubSharedDataListener) return
+  unsubSharedDataListener = window.forgeterm.onSessionData((id, data) => {
+    dataHandlers.get(id)?.(data)
+  })
+}
+
 function getThemeOptions(config: ForgeTermConfig | null) {
   const theme = config?.theme
   return {
@@ -33,19 +44,23 @@ function getThemeOptions(config: ForgeTermConfig | null) {
 export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const initializedRef = useRef(false)
+  const cleanupRef = useRef<(() => void) | null>(null)
+  const configRef = useRef(config)
+  configRef.current = config
 
   const initTerminal = useCallback(() => {
     if (!containerRef.current || initializedRef.current) return
     if (terminals.has(sessionId)) return
     initializedRef.current = true
 
+    const currentConfig = configRef.current
     const terminal = new Terminal({
-      theme: getThemeOptions(config),
-      fontFamily: config?.font?.family ?? 'JetBrains Mono, Menlo, Monaco, monospace',
-      fontSize: config?.font?.size ?? 13,
+      theme: getThemeOptions(currentConfig),
+      fontFamily: currentConfig?.font?.family ?? 'JetBrains Mono, Menlo, Monaco, monospace',
+      fontSize: currentConfig?.font?.size ?? 13,
       cursorBlink: true,
       allowProposedApi: true,
-      scrollback: 10000,
+      scrollback: 5000,
     })
 
     const fitAddon = new FitAddon()
@@ -58,45 +73,45 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       window.forgeterm.resizeSession(sessionId, terminal.cols, terminal.rows)
     })
 
-    // Write data from PTY to terminal
-    const unsubData = window.forgeterm.onSessionData((id, data) => {
-      if (id === sessionId) {
-        terminal.write(data)
-      }
-    })
+    // Register data handler via shared listener (1 IPC listener for all terminals)
+    ensureSharedDataListener()
+    dataHandlers.set(sessionId, (data) => terminal.write(data))
 
     // Write user input to PTY
     terminal.onData((data) => {
       window.forgeterm.writeToSession(sessionId, data)
     })
 
-    // Handle resize
+    // Handle resize with throttling
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null
     const resizeObserver = new ResizeObserver(() => {
-      if (containerRef.current?.offsetParent !== null) {
-        fitAddon.fit()
-        window.forgeterm.resizeSession(sessionId, terminal.cols, terminal.rows)
-      }
+      if (resizeTimer) return
+      resizeTimer = setTimeout(() => {
+        resizeTimer = null
+        if (containerRef.current?.offsetParent !== null) {
+          fitAddon.fit()
+          window.forgeterm.resizeSession(sessionId, terminal.cols, terminal.rows)
+        }
+      }, 50)
     })
     resizeObserver.observe(containerRef.current)
 
     terminals.set(sessionId, { terminal, fitAddon })
 
-    // Cleanup function stored for later
-    const cleanup = () => {
-      unsubData()
+    cleanupRef.current = () => {
+      dataHandlers.delete(sessionId)
+      if (resizeTimer) clearTimeout(resizeTimer)
       resizeObserver.disconnect()
       terminal.dispose()
       terminals.delete(sessionId)
     }
-    ;(containerRef.current as any).__cleanup = cleanup
-  }, [sessionId, config])
+  }, [sessionId])
 
   useEffect(() => {
     initTerminal()
     return () => {
-      if (containerRef.current) {
-        (containerRef.current as any).__cleanup?.()
-      }
+      cleanupRef.current?.()
+      cleanupRef.current = null
       initializedRef.current = false
     }
   }, [initTerminal])

@@ -84,7 +84,7 @@ export class PtyManager {
       cols: 80,
       rows: 24,
       cwd,
-      env: process.env as Record<string, string>,
+      env: { ...process.env } as Record<string, string>,
     })
   }
 
@@ -107,6 +107,13 @@ export class PtyManager {
       session.pty = null
       session.running = false
     }
+  }
+
+  removeSession(id: string) {
+    this.kill(id)
+    this.sessions.delete(id)
+    this.dataCallbacks.delete(id)
+    this.exitCallbacks.delete(id)
   }
 
   restart(id: string, onData: (id: string, data: string) => void, onExit: (id: string, exitCode: number) => void): string {

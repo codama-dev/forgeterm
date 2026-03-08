@@ -1,81 +1,90 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f1a2e"/>
-      <stop offset="100%" stop-color="#162640"/>
+      <stop offset="0%" stop-color="#1a1a2e"/>
+      <stop offset="100%" stop-color="#16213e"/>
     </linearGradient>
-    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+    <linearGradient id="orb1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f97316"/>
+      <stop offset="100%" stop-color="#ef4444"/>
+    </linearGradient>
+    <linearGradient id="orb2" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="100%" stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#6366f1"/>
     </linearGradient>
-    <linearGradient id="anvil" x1="0.5" y1="0" x2="0.5" y2="1">
-      <stop offset="0%" stop-color="#475569"/>
-      <stop offset="100%" stop-color="#334155"/>
+    <linearGradient id="orb3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
     </linearGradient>
-    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
-      <feDropShadow dx="0" dy="4" stdDeviation="20" flood-color="#38bdf8" flood-opacity="0.3"/>
+    <linearGradient id="orb4" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#f97316"/>
+    </linearGradient>
+    <linearGradient id="chevron" x1="0" y1="0" x2="1" y2="0.5">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#818cf8"/>
+      <stop offset="100%" stop-color="#c084fc"/>
+    </linearGradient>
+    <filter id="glow1">
+      <feGaussianBlur stdDeviation="40" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <filter id="innerGlow">
-      <feDropShadow dx="0" dy="0" stdDeviation="8" flood-color="#38bdf8" flood-opacity="0.5"/>
+    <filter id="glow2">
+      <feGaussianBlur stdDeviation="30" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="softglow">
+      <feGaussianBlur stdDeviation="3"/>
     </filter>
   </defs>
 
-  <!-- Background rounded square -->
+  <!-- Background -->
   <rect width="1024" height="1024" rx="220" fill="url(#bg)"/>
 
+  <!-- Large ambient color blobs (behind everything) -->
+  <circle cx="200" cy="250" r="220" fill="#f97316" opacity="0.08" filter="glow1"/>
+  <circle cx="820" cy="200" r="200" fill="#6366f1" opacity="0.08" filter="glow1"/>
+  <circle cx="180" cy="780" r="200" fill="#22c55e" opacity="0.06" filter="glow1"/>
+  <circle cx="800" cy="750" r="180" fill="#38bdf8" opacity="0.07" filter="glow1"/>
+  <circle cx="512" cy="512" r="280" fill="#818cf8" opacity="0.04" filter="glow1"/>
+
+  <!-- Floating orbs - top area -->
+  <circle cx="220" cy="200" r="48" fill="url(#orb1)" opacity="0.85" filter="glow2"/>
+  <circle cx="340" cy="140" r="28" fill="#f59e0b" opacity="0.7" filter="glow2"/>
+  <circle cx="780" cy="180" r="42" fill="url(#orb2)" opacity="0.8" filter="glow2"/>
+  <circle cx="680" cy="130" r="22" fill="#818cf8" opacity="0.65" filter="glow2"/>
+
+  <!-- Floating orbs - sides -->
+  <circle cx="130" cy="480" r="32" fill="url(#orb3)" opacity="0.75" filter="glow2"/>
+  <circle cx="890" cy="520" r="36" fill="#f97316" opacity="0.7" filter="glow2"/>
+  <circle cx="160" cy="650" r="24" fill="#38bdf8" opacity="0.6" filter="glow2"/>
+  <circle cx="870" cy="380" r="20" fill="#22c55e" opacity="0.6" filter="glow2"/>
+
+  <!-- Floating orbs - bottom -->
+  <circle cx="280" cy="830" r="38" fill="url(#orb4)" opacity="0.75" filter="glow2"/>
+  <circle cx="730" cy="860" r="30" fill="url(#orb2)" opacity="0.7" filter="glow2"/>
+  <circle cx="500" cy="880" r="18" fill="#ef4444" opacity="0.5" filter="glow2"/>
+
+  <!-- Small accent dots -->
+  <circle cx="450" cy="180" r="8" fill="#f97316" opacity="0.6"/>
+  <circle cx="580" cy="160" r="6" fill="#22c55e" opacity="0.5"/>
+  <circle cx="900" cy="650" r="10" fill="#818cf8" opacity="0.5"/>
+  <circle cx="120" cy="350" r="7" fill="#f59e0b" opacity="0.5"/>
+  <circle cx="400" cy="870" r="9" fill="#38bdf8" opacity="0.4"/>
+  <circle cx="650" cy="900" r="6" fill="#22c55e" opacity="0.4"/>
+
+  <!-- Main prompt: >_ -->
+  <g transform="translate(512, 490)">
+    <!-- Chevron > -->
+    <text x="-210" y="50" font-family="'SF Mono', 'Fira Code', 'JetBrains Mono', Menlo, monospace" font-size="320" font-weight="800" fill="url(#chevron)">
+      &gt;
+    </text>
+    <!-- Underscore/cursor _ -->
+    <rect x="80" y="20" width="140" height="28" rx="4" fill="#f1f5f9" opacity="0.95">
+      <animate attributeName="opacity" values="0.95;0.3;0.95" dur="1.2s" repeatCount="indefinite"/>
+    </rect>
+  </g>
+
   <!-- Subtle border -->
-  <rect x="4" y="4" width="1016" height="1016" rx="218" fill="none" stroke="#1e293b" stroke-width="8"/>
-
-  <!-- Anvil shape -->
-  <g filter="shadow" transform="translate(512, 340)">
-    <!-- Anvil top (horn + face) -->
-    <path d="M-200,-60 L-280,-60 Q-320,-60 -320,-20 L-320,0 Q-320,30 -290,30 L290,30 Q320,30 320,0 L320,-20 Q320,-60 280,-60 L200,-60 Q180,-100 120,-100 L-120,-100 Q-180,-100 -200,-60 Z"
-      fill="url(#anvil)" opacity="0.6"/>
-    <!-- Anvil base -->
-    <rect x="-180" y="30" width="360" height="40" rx="6" fill="#334155" opacity="0.5"/>
-    <rect x="-220" y="70" width="440" height="20" rx="4" fill="#2d3a4d" opacity="0.4"/>
-  </g>
-
-  <!-- Terminal window frame -->
-  <g transform="translate(512, 512)">
-    <rect x="-240" y="-160" width="480" height="340" rx="20" fill="#0c1322" stroke="#1e293b" stroke-width="4"/>
-
-    <!-- Title bar -->
-    <rect x="-240" y="-160" width="480" height="40" rx="20" fill="#162640"/>
-    <rect x="-240" y="-130" width="480" height="10" fill="#162640"/>
-
-    <!-- Traffic lights -->
-    <circle cx="-205" cy="-140" r="7" fill="#f87171" opacity="0.9"/>
-    <circle cx="-183" cy="-140" r="7" fill="#facc15" opacity="0.9"/>
-    <circle cx="-161" cy="-140" r="7" fill="#4ade80" opacity="0.9"/>
-
-    <!-- Terminal content area -->
-    <rect x="-224" y="-108" width="448" height="272" rx="4" fill="#0f172a"/>
-
-    <!-- Prompt line 1: completed command -->
-    <text x="-200" y="-62" font-family="monospace" font-size="32" font-weight="bold" fill="#38bdf8">~</text>
-    <text x="-172" y="-62" font-family="monospace" font-size="32" fill="#4ade80">forge</text>
-    <text x="-52" y="-62" font-family="monospace" font-size="32" fill="#64748b"> build</text>
-
-    <!-- Output line -->
-    <text x="-200" y="-18" font-family="monospace" font-size="26" fill="#94a3b8">compiling...</text>
-    <text x="20" y="-18" font-family="monospace" font-size="26" fill="#4ade80">done</text>
-
-    <!-- Active prompt with cursor -->
-    <g filter="innerGlow">
-      <text x="-200" y="36" font-family="monospace" font-size="36" font-weight="bold" fill="#38bdf8">&gt;</text>
-      <text x="-164" y="36" font-family="monospace" font-size="36" font-weight="bold" fill="#f1f5f9">_</text>
-    </g>
-
-    <!-- Spark particles from the anvil/forge concept -->
-    <circle cx="140" cy="-80" r="3" fill="#fb923c" opacity="0.8"/>
-    <circle cx="170" cy="-95" r="2.5" fill="#fbbf24" opacity="0.7"/>
-    <circle cx="155" cy="-70" r="2" fill="#f87171" opacity="0.6"/>
-    <circle cx="185" cy="-88" r="1.5" fill="#fb923c" opacity="0.5"/>
-    <circle cx="120" cy="-92" r="2" fill="#fbbf24" opacity="0.6"/>
-
-    <!-- Bottom status bar hint -->
-    <rect x="-224" y="138" width="448" height="26" rx="0" fill="#162640" opacity="0.5"/>
-    <text x="-210" y="156" font-family="monospace" font-size="16" fill="#475569">forgeterm v0.1.0</text>
-  </g>
+  <rect x="3" y="3" width="1018" height="1018" rx="219" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="6"/>
 </svg>
