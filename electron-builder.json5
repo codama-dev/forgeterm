@@ -19,7 +19,8 @@
     "artifactName": "${productName}-Mac-${version}.${ext}"
   },
   "dmg": {
-    "background": "build/dmg-background.png",
+    "title": "Install ForgeTerm",
+    "background": "build/dmg-background@2x.png",
     "window": {
       "width": 660,
       "height": 400
