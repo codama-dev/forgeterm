@@ -55,9 +55,11 @@ Drop a `.forgeterm.json` in any project to define startup sessions, themes, and 
 
 ## Download
 
-**[Download ForgeTerm v0.1.0 for macOS (Apple Silicon)](https://github.com/codama-dev/forgeterm/releases/download/v0.1.0/ForgeTerm-Mac-0.1.0.dmg)**
+**[Download ForgeTerm v0.2.0 for macOS (Apple Silicon)](https://github.com/codama-dev/forgeterm/releases/download/v0.2.0/ForgeTerm-Mac-0.2.0.dmg)**
 
 See all releases on the [Releases page](https://github.com/codama-dev/forgeterm/releases).
+
+> ForgeTerm currently ships as a macOS DMG for Apple Silicon. To run on Windows, Linux, or Intel Mac, clone the repo and build locally with `pnpm build` - electron-builder supports all platforms.
 
 ## Keyboard Shortcuts
 

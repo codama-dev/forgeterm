@@ -18,6 +18,27 @@
     ],
     "artifactName": "${productName}-Mac-${version}.${ext}"
   },
+  "dmg": {
+    "background": "build/dmg-background.png",
+    "window": {
+      "width": 660,
+      "height": 400
+    },
+    "contents": [
+      {
+        "x": 180,
+        "y": 170
+      },
+      {
+        "x": 480,
+        "y": 170,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ],
+    "icon": "build/icon.icns",
+    "iconSize": 80
+  },
   "win": {
     "target": [
       {
