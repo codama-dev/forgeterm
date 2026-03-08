@@ -26,6 +26,20 @@ export function HelpModal({ accentColor, onClose }: HelpModalProps) {
                   />
                 </div>
               ),
+              a: ({ href, children }) => (
+                <a
+                  href={href}
+                  onClick={(e) => {
+                    if (href?.startsWith('http')) {
+                      e.preventDefault()
+                      window.forgeterm?.openExternal(href)
+                    }
+                  }}
+                  style={{ color: accentColor }}
+                >
+                  {children}
+                </a>
+              ),
             }}
           >
             {helpContent}

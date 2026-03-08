@@ -77,3 +77,7 @@ Cycle between three sidebar modes with ⌘B:
 Configure everything per-project with ⌘,. Set the project name, assign it to a workspace, and manage startup sessions - all saved to `.forgeterm.json` in your project root.
 
 ![Project settings with session configuration](screenshots/feature-project-settings.png)
+
+---
+
+Made with ❤️ by the [codama.dev](https://codama.dev) team

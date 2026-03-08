@@ -121,3 +121,7 @@ Check the [open issues](https://github.com/codama-dev/forgeterm/issues) for thin
 ## License
 
 [MIT](LICENSE)
+
+---
+
+Made with ❤️ by the [codama.dev](https://codama.dev) team
