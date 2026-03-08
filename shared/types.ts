@@ -111,7 +111,9 @@ export interface ForgeTermAPI {
   onSessionData: (callback: (id: string, data: string) => void) => () => void
   onSessionExit: (callback: (id: string, exitCode: number) => void) => () => void
   getProjectConfig: () => Promise<ForgeTermConfig | null>
-  getProjectPath: () => Promise<string>
+  getProjectPath: () => Promise<string | null>
+  hasProject: () => Promise<boolean>
+  onProjectOpened: (callback: () => void) => () => void
   onConfigChanged: (callback: () => void) => () => void
   openFolder: () => Promise<string | null>
   renameSession: (id: string, name: string) => Promise<void>

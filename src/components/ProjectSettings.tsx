@@ -40,7 +40,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
       window.forgeterm.getWorkspaces(),
     ]).then(([projectPath, workspaces]) => {
       setExistingWorkspaces(workspaces)
-      const current = workspaces.find((ws) => ws.projects.includes(projectPath))
+      const current = projectPath ? workspaces.find((ws) => ws.projects.includes(projectPath)) : undefined
       if (current) setWorkspaceName(current.name)
     })
   }, [config])
@@ -77,10 +77,12 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
     // Save workspace association
     const projectPath = await window.forgeterm.getProjectPath()
     const trimmedWs = workspaceName.trim()
-    if (trimmedWs) {
-      await window.forgeterm.setProjectWorkspace(projectPath, trimmedWs)
-    } else {
-      await window.forgeterm.removeProjectFromWorkspace(projectPath)
+    if (projectPath) {
+      if (trimmedWs) {
+        await window.forgeterm.setProjectWorkspace(projectPath, trimmedWs)
+      } else {
+        await window.forgeterm.removeProjectFromWorkspace(projectPath)
+      }
     }
     onSave(updated)
   }, [config, customName, sessions, workspaceName, onSave])

@@ -23,6 +23,7 @@ function App() {
   const [showProjectSettings, setShowProjectSettings] = useState(false)
   const [showProjectSwitcher, setShowProjectSwitcher] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [showWelcome, setShowWelcome] = useState(false)
   const [folderName, setFolderName] = useState('ForgeTerm')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('full')
   const [previewTheme, setPreviewTheme] = useState<WindowTheme | null>(null)
@@ -55,15 +56,21 @@ function App() {
     initializedRef.current = true
 
     async function init() {
-      const [projectConfig, projectPath, savedSidebarMode] = await Promise.all([
+      const [projectConfig, projectPath, savedSidebarMode, hasProject] = await Promise.all([
         window.forgeterm.getProjectConfig(),
         window.forgeterm.getProjectPath(),
         window.forgeterm.getSidebarMode(),
+        window.forgeterm.hasProject(),
       ])
+
+      if (!hasProject) {
+        setShowWelcome(true)
+        return
+      }
 
       setConfig(projectConfig)
       if (savedSidebarMode) setSidebarMode(savedSidebarMode)
-      const folder = projectPath.split('/').pop() || 'ForgeTerm'
+      const folder = projectPath?.split('/').pop() || 'ForgeTerm'
       setFolderName(folder)
       document.title = projectConfig?.projectName || folder
 
@@ -114,6 +121,33 @@ function App() {
   useEffect(() => {
     return window.forgeterm.onOpenProjectSwitcher(() => setShowProjectSwitcher(true))
   }, [])
+
+  // When a project is opened in a welcome window, reinitialize
+  useEffect(() => {
+    return window.forgeterm.onProjectOpened(async () => {
+      setShowWelcome(false)
+      initializedRef.current = false
+      const [projectConfig, projectPath, savedSidebarMode] = await Promise.all([
+        window.forgeterm.getProjectConfig(),
+        window.forgeterm.getProjectPath(),
+        window.forgeterm.getSidebarMode(),
+      ])
+      setConfig(projectConfig)
+      if (savedSidebarMode) setSidebarMode(savedSidebarMode)
+      const folder = projectPath?.split('/').pop() || 'ForgeTerm'
+      setFolderName(folder)
+      document.title = projectConfig?.projectName || folder
+
+      if (projectConfig?.sessions?.length) {
+        for (const s of projectConfig.sessions) {
+          const idle = s.autoStart === false
+          await createSession(s.name, s.command, idle)
+        }
+      } else {
+        await createSession('shell')
+      }
+    })
+  }, [createSession])
 
   const cycleSidebarMode = useCallback(() => {
     setSidebarMode((prev) => {
@@ -372,6 +406,14 @@ function App() {
         <HelpModal
           accentColor={accentColor}
           onClose={() => setShowHelp(false)}
+        />
+      )}
+
+      {showWelcome && (
+        <ProjectSwitcher
+          accentColor={accentColor}
+          welcomeMode
+          onCancel={() => setShowWelcome(false)}
         />
       )}
     </div>

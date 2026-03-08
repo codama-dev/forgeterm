@@ -4,13 +4,14 @@ import type { RecentProject, Workspace, DetectedEditor, DisplayInfo } from '../.
 interface ProjectSwitcherProps {
   accentColor: string
   onCancel: () => void
+  welcomeMode?: boolean
 }
 
 type ConfirmDelete =
   | { type: 'project'; path: string; name: string }
   | { type: 'workspace'; name: string }
 
-export function ProjectSwitcher({ accentColor, onCancel }: ProjectSwitcherProps) {
+export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectSwitcherProps) {
   const [projects, setProjects] = useState<RecentProject[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [filter, setFilter] = useState('')
@@ -220,8 +221,25 @@ export function ProjectSwitcher({ accentColor, onCancel }: ProjectSwitcherProps)
   const projectNameMap = new Map(projects.map((p) => [p.path, p.name]))
 
   return (
-    <div className="modal-overlay" onClick={confirmDelete ? undefined : onCancel}>
+    <div className="modal-overlay" onClick={confirmDelete || welcomeMode ? undefined : onCancel}>
       <div className="modal project-switcher-modal" onClick={(e) => e.stopPropagation()}>
+        {welcomeMode && (
+          <div style={{
+            padding: '24px 24px 16px',
+            textAlign: 'center',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+          }}>
+            <div style={{ fontSize: 28, fontFamily: 'monospace', color: 'rgba(255,255,255,0.6)', marginBottom: 6 }}>
+              {'>_'}
+            </div>
+            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: '#e2e8f0' }}>
+              Welcome to ForgeTerm
+            </h2>
+            <p style={{ margin: '6px 0 0', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+              Open a project folder to get started
+            </p>
+          </div>
+        )}
         <div className="switcher-search">
           <input
             ref={inputRef}

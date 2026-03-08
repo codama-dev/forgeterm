@@ -37,6 +37,15 @@ const api: ForgeTermAPI = {
   getProjectPath: () =>
     ipcRenderer.invoke('project:get-path'),
 
+  hasProject: () =>
+    ipcRenderer.invoke('project:has-project'),
+
+  onProjectOpened: (callback: () => void) => {
+    const handler = () => callback()
+    ipcRenderer.on('project:opened', handler)
+    return () => { ipcRenderer.removeListener('project:opened', handler) }
+  },
+
   onConfigChanged: (callback: () => void) => {
     const handler = () => callback()
     ipcRenderer.on('config:changed', handler)

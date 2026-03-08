@@ -362,10 +362,12 @@ function focusOrCreateWindow(projectPath: string): BrowserWindow {
   return createProjectWindow(projectPath)
 }
 
-function createProjectWindow(projectPath: string) {
-  autoAssignThemeIfNeeded(projectPath)
-  saveRecentProject(projectPath)
-  const folderName = path.basename(projectPath)
+function createProjectWindow(projectPath: string | null) {
+  if (projectPath) {
+    autoAssignThemeIfNeeded(projectPath)
+    saveRecentProject(projectPath)
+  }
+  const folderName = projectPath ? path.basename(projectPath) : 'ForgeTerm'
 
   const win = new BrowserWindow({
     width: 1200,
@@ -381,10 +383,10 @@ function createProjectWindow(projectPath: string) {
   })
 
   const ptyManager = new PtyManager()
-  const configWatcher = watchConfig(win, projectPath)
+  const configWatcher = projectPath ? watchConfig(win, projectPath) : undefined
 
   windowStates.set(win.id, {
-    projectPath,
+    projectPath: projectPath ?? '',
     ptyManager,
     configWatcher,
   })
@@ -664,7 +666,12 @@ function setupIpcHandlers() {
 
   ipcMain.handle('project:get-path', (event) => {
     const state = getStateForEvent(event)
-    return state?.projectPath ?? process.cwd()
+    return state?.projectPath || null
+  })
+
+  ipcMain.handle('project:has-project', (event) => {
+    const state = getStateForEvent(event)
+    return !!(state?.projectPath)
   })
 
   ipcMain.handle('config:create-and-open', async (event) => {
@@ -683,12 +690,27 @@ function setupIpcHandlers() {
     saveConfig(state.projectPath, config)
   })
 
-  ipcMain.handle('dialog:open-folder', async () => {
+  ipcMain.handle('dialog:open-folder', async (event) => {
     const result = await dialog.showOpenDialog({
       properties: ['openDirectory'],
     })
     if (result.canceled || result.filePaths.length === 0) return null
     const folderPath = result.filePaths[0]
+
+    // If the current window has no project (welcome state), reuse it
+    const state = getStateForEvent(event)
+    if (state && !state.projectPath) {
+      const win = BrowserWindow.fromWebContents(event.sender)!
+      autoAssignThemeIfNeeded(folderPath)
+      saveRecentProject(folderPath)
+      state.projectPath = folderPath
+      state.configWatcher = watchConfig(win, folderPath)
+      win.setTitle(path.basename(folderPath))
+      win.webContents.send('config:changed')
+      win.webContents.send('project:opened')
+      return folderPath
+    }
+
     focusOrCreateWindow(folderPath)
     return folderPath
   })
@@ -1079,26 +1101,54 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-function getInitialProjectPath(): string {
+function isWritableDirectory(dirPath: string): boolean {
+  try {
+    fs.accessSync(dirPath, fs.constants.W_OK)
+    return dirPath !== '/'
+  } catch {
+    return false
+  }
+}
+
+function getInitialProjectPath(): string | null {
   // Check CLI args (skip electron binary and script path)
   const args = process.argv.slice(app.isPackaged ? 1 : 2)
   for (const arg of args) {
     if (!arg.startsWith('-') && !arg.startsWith('.')) {
       try {
         const resolved = path.resolve(arg)
-        if (fs.statSync(resolved).isDirectory()) return resolved
+        if (fs.statSync(resolved).isDirectory() && isWritableDirectory(resolved)) return resolved
       } catch { /* ignore */ }
     }
-    if (arg === '.') return process.cwd()
+    if (arg === '.') {
+      const cwd = process.cwd()
+      if (isWritableDirectory(cwd)) return cwd
+    }
     if (arg.startsWith('./') || arg.startsWith('/')) {
       try {
         const resolved = path.resolve(arg)
-        if (fs.statSync(resolved).isDirectory()) return resolved
+        if (fs.statSync(resolved).isDirectory() && isWritableDirectory(resolved)) return resolved
       } catch { /* ignore */ }
     }
   }
-  return process.cwd()
+  const cwd = process.cwd()
+  return isWritableDirectory(cwd) ? cwd : null
 }
+
+// Handle macOS "Open with" / drag folder onto dock icon
+app.on('open-file', (event, filePath) => {
+  event.preventDefault()
+  try {
+    if (!fs.statSync(filePath).isDirectory()) return
+  } catch { return }
+
+  if (app.isReady()) {
+    focusOrCreateWindow(filePath)
+  } else {
+    // App not ready yet - store for launch
+    process.argv.push(filePath)
+  }
+})
 
 app.whenReady().then(() => {
   buildMenu()
@@ -1126,6 +1176,7 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createProjectWindow(process.cwd())
+    const cwd = process.cwd()
+    createProjectWindow(isWritableDirectory(cwd) ? cwd : null)
   }
 })
