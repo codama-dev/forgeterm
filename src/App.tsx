@@ -6,6 +6,7 @@ import { ThemeEditor } from './components/ThemeEditor'
 import { ProjectSettings } from './components/ProjectSettings'
 import { ProjectSwitcher } from './components/ProjectSwitcher'
 import { HelpModal } from './components/HelpModal'
+import { UpdateBanner } from './components/UpdateBanner'
 import { useSessionStore } from './store/sessionStore'
 import type { ForgeTermConfig } from '../shared/types'
 import type { WindowTheme } from './themes'
@@ -299,6 +300,7 @@ function App() {
           Open
         </button>
       </div>
+      <UpdateBanner accentColor={accentColor} />
       <div className="main-layout">
         {sidebarMode !== 'hidden' && (
           <Sidebar

@@ -4,7 +4,8 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { execSync } from 'node:child_process'
 import { PtyManager } from './ptyManager'
-import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor } from '../shared/types'
+import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo } from '../shared/types'
+import { UpdateManager } from './updater'
 import { generateWindowTheme, getTerminalTheme, PRESET_THEMES } from '../src/themes'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -29,6 +30,7 @@ interface WindowState {
 }
 
 const windowStates = new Map<number, WindowState>()
+const updateManager = new UpdateManager()
 
 // --- Recent projects ---
 
@@ -933,6 +935,23 @@ function setupIpcHandlers() {
     favorites = favorites.filter((f) => f.name !== name)
     fs.writeFileSync(getFavoriteThemesPath(), JSON.stringify(favorites, null, 2), 'utf-8')
   })
+
+  // --- Update checks ---
+
+  ipcMain.handle('update:check', async (): Promise<UpdateInfo> => {
+    const info = await updateManager.checkNow()
+    return { ...info, supportsAutoInstall: updateManager.supportsAutoInstall }
+  })
+
+  ipcMain.handle('update:get-last-check', (): UpdateInfo | null => {
+    const info = updateManager.getLastCheck()
+    if (!info) return null
+    return { ...info, supportsAutoInstall: updateManager.supportsAutoInstall }
+  })
+
+  ipcMain.handle('update:apply', async () => {
+    await updateManager.applyUpdate()
+  })
 }
 
 function buildMenu() {
@@ -1084,6 +1103,16 @@ function getInitialProjectPath(): string {
 app.whenReady().then(() => {
   buildMenu()
   setupIpcHandlers()
+
+  // Broadcast update availability to all renderer windows
+  updateManager.onUpdateAvailable((info) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('update:available', { ...info, supportsAutoInstall: updateManager.supportsAutoInstall })
+      }
+    }
+  })
+  updateManager.startPeriodicChecks()
 
   const projectPath = getInitialProjectPath()
   createProjectWindow(projectPath)

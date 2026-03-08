@@ -1,5 +1,5 @@
 import { ipcRenderer, contextBridge } from 'electron'
-import type { ForgeTermAPI } from '../shared/types'
+import type { ForgeTermAPI, UpdateInfo } from '../shared/types'
 
 const api: ForgeTermAPI = {
   createSession: (name: string, command?: string, idle?: boolean) =>
@@ -147,6 +147,21 @@ const api: ForgeTermAPI = {
 
   openExternal: (url: string) =>
     ipcRenderer.invoke('shell:open-external', url),
+
+  checkForUpdate: () =>
+    ipcRenderer.invoke('update:check'),
+
+  getLastUpdateCheck: () =>
+    ipcRenderer.invoke('update:get-last-check'),
+
+  applyUpdate: () =>
+    ipcRenderer.invoke('update:apply'),
+
+  onUpdateAvailable: (callback: (info: UpdateInfo) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: UpdateInfo) => callback(info)
+    ipcRenderer.on('update:available', handler)
+    return () => { ipcRenderer.removeListener('update:available', handler) }
+  },
 
   getFavoriteThemes: () =>
     ipcRenderer.invoke('themes:get-favorites'),

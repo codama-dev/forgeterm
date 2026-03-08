@@ -79,6 +79,15 @@ export interface DetectedEditor {
   path: string
 }
 
+export interface UpdateInfo {
+  available: boolean
+  currentVersion: string
+  latestVersion?: string
+  releaseUrl?: string
+  releaseNotes?: string
+  supportsAutoInstall?: boolean
+}
+
 export interface FavoriteTheme {
   name: string
   window: {
@@ -135,6 +144,10 @@ export interface ForgeTermAPI {
   importFromPath: (filePath: string) => Promise<ImportResult | null>
   dismissImportSuggestion: () => Promise<void>
   shouldShowImportSuggestion: () => Promise<boolean>
+  checkForUpdate: () => Promise<UpdateInfo>
+  getLastUpdateCheck: () => Promise<UpdateInfo | null>
+  applyUpdate: () => Promise<void>
+  onUpdateAvailable: (callback: (info: UpdateInfo) => void) => () => void
   getFavoriteThemes: () => Promise<FavoriteTheme[]>
   saveFavoriteTheme: (theme: FavoriteTheme) => Promise<void>
   deleteFavoriteTheme: (name: string) => Promise<void>
