@@ -180,6 +180,9 @@ const api: ForgeTermAPI = {
 
   deleteFavoriteTheme: (name: string) =>
     ipcRenderer.invoke('themes:delete-favorite', name),
+
+  getAllSessionTemplates: () =>
+    ipcRenderer.invoke('sessions:get-all-templates'),
 }
 
 contextBridge.exposeInMainWorld('forgeterm', api)

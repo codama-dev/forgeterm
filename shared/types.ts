@@ -102,6 +102,13 @@ export interface FavoriteTheme {
   terminalMode: 'dark' | 'light'
 }
 
+export interface SessionTemplate {
+  name: string
+  command?: string
+  projectName: string
+  projectPath: string
+}
+
 export interface ForgeTermAPI {
   createSession: (name: string, command?: string, idle?: boolean) => Promise<string>
   killSession: (id: string) => Promise<void>
@@ -153,4 +160,5 @@ export interface ForgeTermAPI {
   getFavoriteThemes: () => Promise<FavoriteTheme[]>
   saveFavoriteTheme: (theme: FavoriteTheme) => Promise<void>
   deleteFavoriteTheme: (name: string) => Promise<void>
+  getAllSessionTemplates: () => Promise<SessionTemplate[]>
 }

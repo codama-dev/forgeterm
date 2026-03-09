@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { ForgeTermConfig, Workspace } from '../../shared/types'
+import type { ForgeTermConfig, Workspace, SessionTemplate } from '../../shared/types'
 
 interface SessionConfig {
   name: string
@@ -21,6 +21,9 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
   const [workspaceName, setWorkspaceName] = useState('')
   const [existingWorkspaces, setExistingWorkspaces] = useState<Workspace[]>([])
   const [showWorkspaceSuggestions, setShowWorkspaceSuggestions] = useState(false)
+  const [sessionTemplates, setSessionTemplates] = useState<SessionTemplate[]>([])
+  const [activeSessionSuggestion, setActiveSessionSuggestion] = useState<number | null>(null)
+  const [showSessionSuggestions, setShowSessionSuggestions] = useState(false)
   const nameRef = useRef<HTMLInputElement>(null)
   const wsInputRef = useRef<HTMLInputElement>(null)
 
@@ -43,6 +46,8 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
       const current = projectPath ? workspaces.find((ws) => ws.projects.includes(projectPath)) : undefined
       if (current) setWorkspaceName(current.name)
     })
+    // Load session templates from all projects
+    window.forgeterm.getAllSessionTemplates().then(setSessionTemplates)
   }, [config])
 
   useEffect(() => {
@@ -51,6 +56,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
 
   const addSession = useCallback(() => {
     setSessions((prev) => [...prev, { name: '', command: '', autoStart: true }])
+    setActiveSessionSuggestion(null)
   }, [])
 
   const removeSession = useCallback((index: number) => {
@@ -61,7 +67,36 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
     setSessions((prev) =>
       prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)),
     )
+    if (field === 'name' && typeof value === 'string') {
+      setActiveSessionSuggestion(value.length > 0 ? index : null)
+      setShowSessionSuggestions(value.length > 0)
+    }
   }, [])
+
+  const applyTemplate = useCallback((index: number, template: SessionTemplate) => {
+    setSessions((prev) =>
+      prev.map((s, i) =>
+        i === index
+          ? { ...s, name: template.name, command: template.command || '' }
+          : s,
+      ),
+    )
+    setActiveSessionSuggestion(null)
+    setShowSessionSuggestions(false)
+  }, [])
+
+  const getFilteredTemplates = useCallback((query: string) => {
+    if (!query.trim()) return []
+    const q = query.toLowerCase()
+    // Deduplicate by name+command, keep first occurrence
+    const seen = new Set<string>()
+    return sessionTemplates.filter((t) => {
+      const key = `${t.name}::${t.command || ''}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return t.name.toLowerCase().includes(q) || (t.command || '').toLowerCase().includes(q)
+    })
+  }, [sessionTemplates])
 
   const handleSave = useCallback(async () => {
     const validSessions = sessions.filter((s) => s.name.trim())
@@ -158,45 +193,80 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
 
         <div className="settings-section-title">Startup Sessions</div>
         <div className="session-configs">
-          {sessions.map((session, i) => (
-            <div key={i} className="session-config-row">
-              <div className="session-config-fields">
-                <input
-                  type="text"
-                  value={session.name}
-                  onChange={(e) => updateSession(i, 'name', e.target.value)}
-                  placeholder="Name"
-                  className="session-config-input"
-                />
-                <input
-                  type="text"
-                  value={session.command}
-                  onChange={(e) => updateSession(i, 'command', e.target.value)}
-                  placeholder="Command (optional)"
-                  className="session-config-input"
-                />
-              </div>
-              <div className="session-config-right">
-                <label className="auto-start-toggle">
+          {sessions.map((session, i) => {
+            const suggestions = activeSessionSuggestion === i && showSessionSuggestions
+              ? getFilteredTemplates(session.name)
+              : []
+            return (
+              <div key={i} className="session-config-row" style={{ position: 'relative' }}>
+                <div className="session-config-fields">
                   <input
-                    type="checkbox"
-                    checked={session.autoStart}
-                    onChange={(e) => updateSession(i, 'autoStart', e.target.checked)}
+                    type="text"
+                    value={session.name}
+                    onChange={(e) => updateSession(i, 'name', e.target.value)}
+                    onFocus={() => {
+                      if (session.name.length > 0) {
+                        setActiveSessionSuggestion(i)
+                        setShowSessionSuggestions(true)
+                      }
+                    }}
+                    onBlur={() => setTimeout(() => {
+                      setActiveSessionSuggestion(null)
+                      setShowSessionSuggestions(false)
+                    }, 150)}
+                    placeholder="Name"
+                    className="session-config-input"
+                    autoComplete="off"
                   />
-                  <span>Auto</span>
-                </label>
-                <button
-                  className="session-remove-btn"
-                  onClick={() => removeSession(i)}
-                  title="Remove"
-                >
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                    <path d="M2 2l8 8M10 2l-8 8" />
-                  </svg>
-                </button>
+                  <input
+                    type="text"
+                    value={session.command}
+                    onChange={(e) => updateSession(i, 'command', e.target.value)}
+                    placeholder="Command (optional)"
+                    className="session-config-input"
+                  />
+                </div>
+                <div className="session-config-right">
+                  <label className="auto-start-toggle">
+                    <input
+                      type="checkbox"
+                      checked={session.autoStart}
+                      onChange={(e) => updateSession(i, 'autoStart', e.target.checked)}
+                    />
+                    <span>Auto</span>
+                  </label>
+                  <button
+                    className="session-remove-btn"
+                    onClick={() => removeSession(i)}
+                    title="Remove"
+                  >
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                      <path d="M2 2l8 8M10 2l-8 8" />
+                    </svg>
+                  </button>
+                </div>
+                {suggestions.length > 0 && (
+                  <div className="session-template-suggestions">
+                    {suggestions.map((t, ti) => (
+                      <div
+                        key={ti}
+                        className="session-template-suggestion"
+                        onMouseDown={() => applyTemplate(i, t)}
+                      >
+                        <div className="session-template-main">
+                          <span className="session-template-name">{t.name}</span>
+                          {t.command && (
+                            <span className="session-template-command">{t.command}</span>
+                          )}
+                        </div>
+                        <span className="session-template-project">{t.projectName}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         <button

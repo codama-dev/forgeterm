@@ -263,10 +263,23 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [activeSessionId, setActive, cycleSidebarMode, adjustCurrentThemeBrightness])
 
-  const handleNewSession = useCallback(async (name: string, command?: string) => {
+  const handleNewSession = useCallback(async (name: string, command?: string, addToStartup?: boolean) => {
     setShowModal(false)
     await createSession(name, command)
-  }, [createSession])
+    if (addToStartup) {
+      const currentConfig = config || {}
+      const existingSessions = currentConfig.sessions || []
+      const alreadyExists = existingSessions.some((s) => s.name === name && s.command === command)
+      if (!alreadyExists) {
+        const updatedConfig: ForgeTermConfig = {
+          ...currentConfig,
+          sessions: [...existingSessions, { name, command, autoStart: true }],
+        }
+        await window.forgeterm.saveConfig(updatedConfig)
+        setConfig(updatedConfig)
+      }
+    }
+  }, [createSession, config])
 
   const handleSaveTheme = useCallback(async (updatedConfig: ForgeTermConfig) => {
     setShowThemeEditor(false)

@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { execSync } from 'node:child_process'
 import { PtyManager } from './ptyManager'
-import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo } from '../shared/types'
+import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate } from '../shared/types'
 import { UpdateManager } from './updater'
 import { generateWindowTheme, getTerminalTheme, PRESET_THEMES } from '../src/themes'
 
@@ -956,6 +956,28 @@ function setupIpcHandlers() {
     } catch { /* empty */ }
     favorites = favorites.filter((f) => f.name !== name)
     fs.writeFileSync(getFavoriteThemesPath(), JSON.stringify(favorites, null, 2), 'utf-8')
+  })
+
+  // --- Session templates from all projects ---
+
+  ipcMain.handle('sessions:get-all-templates', (): SessionTemplate[] => {
+    const projects = loadRecentProjects()
+    const templates: SessionTemplate[] = []
+    for (const project of projects) {
+      const config = loadConfig(project.path)
+      if (config?.sessions?.length) {
+        const projectName = config.projectName || path.basename(project.path)
+        for (const s of config.sessions) {
+          templates.push({
+            name: s.name,
+            command: s.command,
+            projectName,
+            projectPath: project.path,
+          })
+        }
+      }
+    }
+    return templates
   })
 
   // --- Update checks ---

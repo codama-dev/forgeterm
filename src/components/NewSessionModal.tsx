@@ -8,13 +8,14 @@ interface SessionPreset {
 interface NewSessionModalProps {
   accentColor: string
   presets: SessionPreset[]
-  onSubmit: (name: string, command?: string) => void
+  onSubmit: (name: string, command?: string, addToStartup?: boolean) => void
   onCancel: () => void
 }
 
 export function NewSessionModal({ accentColor, presets, onSubmit, onCancel }: NewSessionModalProps) {
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
+  const [addToStartup, setAddToStartup] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -24,7 +25,7 @@ export function NewSessionModal({ accentColor, presets, onSubmit, onCancel }: Ne
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     const sessionName = name.trim() || 'shell'
-    onSubmit(sessionName, command.trim() || undefined)
+    onSubmit(sessionName, command.trim() || undefined, addToStartup)
   }
 
   const handlePresetClick = useCallback((preset: SessionPreset) => {
@@ -80,6 +81,14 @@ export function NewSessionModal({ accentColor, presets, onSubmit, onCancel }: Ne
               placeholder="e.g. npm run dev"
             />
           </div>
+          <label className="add-to-startup-toggle">
+            <input
+              type="checkbox"
+              checked={addToStartup}
+              onChange={(e) => setAddToStartup(e.target.checked)}
+            />
+            <span>Add to project startup sessions</span>
+          </label>
           <div className="modal-actions">
             <button type="button" className="btn-cancel" onClick={onCancel}>
               Cancel
