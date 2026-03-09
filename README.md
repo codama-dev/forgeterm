@@ -57,9 +57,7 @@ Drop a `.forgeterm.json` in any project to define startup sessions, themes, and 
 
 **[Download ForgeTerm v0.2.0 for macOS (Apple Silicon)](https://github.com/codama-dev/forgeterm/releases/download/v0.2.0/ForgeTerm-Mac-0.2.0.dmg)**
 
-See all releases on the [Releases page](https://github.com/codama-dev/forgeterm/releases).
-
-> ForgeTerm currently ships as a macOS DMG for Apple Silicon. To run on Windows, Linux, or Intel Mac, clone the repo and build locally with `pnpm build` - electron-builder supports all platforms.
+See all releases on the [Releases page](https://github.com/codama-dev/forgeterm/releases). For Windows, Linux, or Intel Mac - see [Build from Source](#build-from-source) below.
 
 ## Keyboard Shortcuts
 
@@ -78,6 +76,8 @@ See all releases on the [Releases page](https://github.com/codama-dev/forgeterm/
 
 ## Build from Source
 
+Pre-built DMGs are available for macOS Apple Silicon. For **Windows, Linux, or Intel Mac**, clone the repo and build locally - Electron supports all platforms natively.
+
 ```bash
 git clone https://github.com/codama-dev/forgeterm.git
 cd forgeterm
@@ -86,9 +86,11 @@ pnpm install
 # Dev mode
 pnpm dev
 
-# Package
+# Package for your OS
 pnpm build
 ```
+
+`pnpm build` uses electron-builder which automatically targets your current platform. The packaged app will appear in the `release/` directory.
 
 ## Architecture
 

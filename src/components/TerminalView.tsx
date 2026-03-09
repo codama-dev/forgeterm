@@ -96,9 +96,37 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     })
     resizeObserver.observe(containerRef.current)
 
+    // Drag-and-drop: insert file paths into terminal
+    const container = containerRef.current
+    const handleDragOver = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    const handleDrop = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const files = e.dataTransfer?.files
+      if (files && files.length > 0) {
+        const paths = Array.from(files)
+          .map((f) => {
+            const p = (f as any).path as string
+            return p?.includes(' ') ? `'${p}'` : p
+          })
+          .filter(Boolean)
+          .join(' ')
+        if (paths) {
+          window.forgeterm.writeToSession(sessionId, paths)
+        }
+      }
+    }
+    container.addEventListener('dragover', handleDragOver)
+    container.addEventListener('drop', handleDrop)
+
     terminals.set(sessionId, { terminal, fitAddon })
 
     cleanupRef.current = () => {
+      container.removeEventListener('dragover', handleDragOver)
+      container.removeEventListener('drop', handleDrop)
       dataHandlers.delete(sessionId)
       if (resizeTimer) clearTimeout(resizeTimer)
       resizeObserver.disconnect()

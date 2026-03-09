@@ -109,6 +109,15 @@ export interface SessionTemplate {
   projectPath: string
 }
 
+export interface ForgeTermNotification {
+  message: string
+  title?: string
+  sound?: boolean
+  projectPath?: string
+  sessionId?: string
+  sessionName?: string
+}
+
 export interface ForgeTermAPI {
   createSession: (name: string, command?: string, idle?: boolean) => Promise<string>
   killSession: (id: string) => Promise<void>
@@ -161,4 +170,5 @@ export interface ForgeTermAPI {
   saveFavoriteTheme: (theme: FavoriteTheme) => Promise<void>
   deleteFavoriteTheme: (name: string) => Promise<void>
   getAllSessionTemplates: () => Promise<SessionTemplate[]>
+  onFocusSession: (callback: (sessionId: string) => void) => () => void
 }

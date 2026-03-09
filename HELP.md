@@ -78,6 +78,10 @@ Configure everything per-project with ⌘,. Set the project name, assign it to a
 
 ![Project settings with session configuration](screenshots/feature-project-settings.png)
 
+### Cross-Platform
+
+Pre-built downloads are available for macOS Apple Silicon. Running Windows, Linux, or an Intel Mac? Just clone the repo and run `pnpm build` - Electron supports all platforms natively, so you can build ForgeTerm for your OS in minutes.
+
 ---
 
 Made with ❤️ by the [codama.dev](https://codama.dev) team

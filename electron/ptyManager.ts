@@ -15,6 +15,7 @@ interface CreateSessionOptions {
   command?: string
   cwd: string
   idle?: boolean
+  socketPath?: string
   onData: (id: string, data: string) => void
   onExit: (id: string, exitCode: number) => void
 }
@@ -24,9 +25,12 @@ export class PtyManager {
   private nextId = 1
   private dataCallbacks = new Map<string, (id: string, data: string) => void>()
   private exitCallbacks = new Map<string, (id: string, exitCode: number) => void>()
+  private socketPath?: string
 
   createSession(options: CreateSessionOptions): string {
     const id = `session-${this.nextId++}`
+
+    if (options.socketPath) this.socketPath = options.socketPath
 
     this.dataCallbacks.set(id, options.onData)
     this.exitCallbacks.set(id, options.onExit)
@@ -43,7 +47,15 @@ export class PtyManager {
       return id
     }
 
-    const proc = this.spawnShell(options.cwd)
+    const extraEnv: Record<string, string> = {
+      FORGETERM: '1',
+      FORGETERM_PROJECT_PATH: options.cwd,
+      FORGETERM_SESSION_ID: id,
+      FORGETERM_SESSION_NAME: options.name,
+    }
+    if (this.socketPath) extraEnv.FORGETERM_SOCKET = this.socketPath
+
+    const proc = this.spawnShell(options.cwd, extraEnv)
 
     proc.onData((data) => {
       this.dataCallbacks.get(id)?.(id, data)
@@ -77,14 +89,14 @@ export class PtyManager {
     return id
   }
 
-  private spawnShell(cwd: string): pty.IPty {
+  private spawnShell(cwd: string, extraEnv?: Record<string, string>): pty.IPty {
     const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh')
     return pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 80,
       rows: 24,
       cwd,
-      env: { ...process.env } as Record<string, string>,
+      env: { ...process.env, ...extraEnv } as Record<string, string>,
     })
   }
 
@@ -126,7 +138,15 @@ export class PtyManager {
       session.pty = null
     }
 
-    const proc = this.spawnShell(session.cwd)
+    const extraEnv: Record<string, string> = {
+      FORGETERM: '1',
+      FORGETERM_PROJECT_PATH: session.cwd,
+      FORGETERM_SESSION_ID: id,
+      FORGETERM_SESSION_NAME: session.name,
+    }
+    if (this.socketPath) extraEnv.FORGETERM_SOCKET = this.socketPath
+
+    const proc = this.spawnShell(session.cwd, extraEnv)
 
     this.dataCallbacks.set(id, onData)
     this.exitCallbacks.set(id, onExit)

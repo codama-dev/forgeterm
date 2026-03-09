@@ -6,6 +6,7 @@ import { execSync } from 'node:child_process'
 import { PtyManager } from './ptyManager'
 import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate } from '../shared/types'
 import { UpdateManager } from './updater'
+import { NotificationServer, getSocketPath } from './notificationServer'
 import { generateWindowTheme, getTerminalTheme, PRESET_THEMES } from '../src/themes'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -31,6 +32,14 @@ interface WindowState {
 
 const windowStates = new Map<number, WindowState>()
 const updateManager = new UpdateManager()
+const notificationServer = new NotificationServer({
+  findWindowForProject,
+  getProjectDisplayName: (projectPath: string) => {
+    if (!projectPath) return null
+    const config = loadConfig(projectPath)
+    return config?.projectName || path.basename(projectPath)
+  },
+})
 
 // --- Recent projects ---
 
@@ -609,6 +618,7 @@ function setupIpcHandlers() {
       command,
       idle,
       cwd: state.projectPath,
+      socketPath: getSocketPath(),
       onData: (sessionId, data) => {
         if (!win.isDestroyed()) {
           win.webContents.send('session:data', sessionId, data)
@@ -1176,6 +1186,7 @@ app.on('open-file', (event, filePath) => {
 app.whenReady().then(() => {
   buildMenu()
   setupIpcHandlers()
+  notificationServer.start()
 
   // Broadcast update availability to all renderer windows
   updateManager.onUpdateAvailable((info) => {
@@ -1189,6 +1200,10 @@ app.whenReady().then(() => {
 
   const projectPath = getInitialProjectPath()
   createProjectWindow(projectPath)
+})
+
+app.on('will-quit', () => {
+  notificationServer.stop()
 })
 
 app.on('window-all-closed', () => {

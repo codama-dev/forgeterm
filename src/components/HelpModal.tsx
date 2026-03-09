@@ -18,7 +18,7 @@ export function HelpModal({ accentColor, onClose }: HelpModalProps) {
               img: ({ src, alt }) => (
                 <div className="help-feature-screenshot">
                   <img
-                    src={src?.startsWith('screenshots/') ? `/${src}` : src}
+                    src={src?.startsWith('screenshots/') ? `./${src}` : src}
                     alt={alt || ''}
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none'

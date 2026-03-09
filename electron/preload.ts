@@ -183,6 +183,13 @@ const api: ForgeTermAPI = {
 
   getAllSessionTemplates: () =>
     ipcRenderer.invoke('sessions:get-all-templates'),
+
+  onFocusSession: (callback: (sessionId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string) =>
+      callback(sessionId)
+    ipcRenderer.on('notification:focus-session', handler)
+    return () => { ipcRenderer.removeListener('notification:focus-session', handler) }
+  },
 }
 
 contextBridge.exposeInMainWorld('forgeterm', api)

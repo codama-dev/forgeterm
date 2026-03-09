@@ -122,6 +122,13 @@ function App() {
     return window.forgeterm.onOpenProjectSwitcher(() => setShowProjectSwitcher(true))
   }, [])
 
+  // Focus session when notification is clicked
+  useEffect(() => {
+    return window.forgeterm.onFocusSession((sessionId) => {
+      setActive(sessionId)
+    })
+  }, [setActive])
+
   // When a project is opened in a welcome window, reinitialize
   useEffect(() => {
     return window.forgeterm.onProjectOpened(async () => {
