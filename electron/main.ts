@@ -52,8 +52,9 @@ function saveRecentProject(projectPath: string) {
   const config = loadConfig(projectPath)
   const name = config?.projectName || path.basename(projectPath)
   const workspace = getWorkspaceForProject(projectPath)
+  const existing = projects.find((p) => p.path === projectPath)
   const filtered = projects.filter((p) => p.path !== projectPath)
-  filtered.unshift({ path: projectPath, name, lastOpened: Date.now(), workspace })
+  filtered.unshift({ ...existing, path: projectPath, name, lastOpened: Date.now(), workspace })
   const trimmed = filtered.slice(0, 20)
   fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(trimmed, null, 2), 'utf-8')
 }
