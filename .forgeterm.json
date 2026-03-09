@@ -38,6 +38,11 @@
       "name": "Github",
       "command": "gh auth status",
       "autoStart": true
+    },
+    {
+      "name": "Test",
+      "command": "git status",
+      "autoStart": true
     }
   ],
   "terminalTheme": "dark",

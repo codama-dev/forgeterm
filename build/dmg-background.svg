@@ -21,6 +21,16 @@
       <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.06"/>
       <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
     </radialGradient>
+    <radialGradient id="label-glow-left" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#d4d0f8" stop-opacity="0.28"/>
+      <stop offset="60%" stop-color="#818cf8" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#818cf8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="label-glow-right" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#d4d0f8" stop-opacity="0.28"/>
+      <stop offset="60%" stop-color="#38bdf8" stop-opacity="0.08"/>
+      <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 
   <!-- Background -->
@@ -30,6 +40,10 @@
   <ellipse cx="180" cy="170" rx="200" ry="180" fill="url(#glow-left)"/>
   <ellipse cx="480" cy="170" rx="200" ry="180" fill="url(#glow-right)"/>
   <ellipse cx="330" cy="200" rx="240" ry="200" fill="url(#glow-center)"/>
+
+  <!-- Light areas behind icon labels for readability -->
+  <ellipse cx="180" cy="228" rx="55" ry="28" fill="url(#label-glow-left)"/>
+  <ellipse cx="480" cy="228" rx="55" ry="28" fill="url(#label-glow-right)"/>
 
   <!-- Floating orbs - small, tasteful -->
   <circle cx="70" cy="50" r="5" fill="#f97316" opacity="0.5"/>
@@ -56,6 +70,14 @@
     <circle cx="30" cy="130" r="1"/><circle cx="30" cy="170" r="1"/><circle cx="30" cy="210" r="1"/>
     <circle cx="630" cy="130" r="1"/><circle cx="630" cy="170" r="1"/><circle cx="630" cy="210" r="1"/>
   </g>
+
+  <!-- xattr note at bottom -->
+  <text x="330" y="340" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif" font-size="9.5" fill="rgba(255,255,255,0.3)" text-anchor="middle" letter-spacing="0.3">
+    If macOS says the app is damaged, run in Terminal:
+  </text>
+  <text x="330" y="358" font-family="'SF Mono', 'Menlo', 'Monaco', monospace" font-size="10" fill="rgba(165,180,252,0.5)" text-anchor="middle" letter-spacing="0.3">
+    xattr -cr /Applications/ForgeTerm.app
+  </text>
 
   <!-- Bottom subtle line -->
   <line x1="130" y1="380" x2="530" y2="380" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
