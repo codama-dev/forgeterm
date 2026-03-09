@@ -134,11 +134,12 @@
 }
 
 .sidebar-actions-compact .sidebar-action-btn {
+  flex: unset;
+  width: 100%;
   aspect-ratio: 1;
   height: auto;
   border-radius: 4px;
   padding: 0;
-  justify-content: center;
 }
 
 .sidebar-header {
