@@ -157,6 +157,18 @@ const api: ForgeTermAPI = {
   openExternal: (url: string) =>
     ipcRenderer.invoke('shell:open-external', url),
 
+  isCliInstalled: () =>
+    ipcRenderer.invoke('cli:is-installed'),
+
+  installCli: () =>
+    ipcRenderer.invoke('cli:install'),
+
+  dismissCliPrompt: () =>
+    ipcRenderer.invoke('cli:dismiss-prompt'),
+
+  shouldShowCliPrompt: () =>
+    ipcRenderer.invoke('cli:should-show-prompt'),
+
   checkForUpdate: () =>
     ipcRenderer.invoke('update:check'),
 
@@ -165,6 +177,12 @@ const api: ForgeTermAPI = {
 
   applyUpdate: () =>
     ipcRenderer.invoke('update:apply'),
+
+  installUpdate: () =>
+    ipcRenderer.invoke('update:install'),
+
+  getUpdateCommand: () =>
+    ipcRenderer.invoke('update:get-command'),
 
   onUpdateAvailable: (callback: (info: UpdateInfo) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, info: UpdateInfo) => callback(info)

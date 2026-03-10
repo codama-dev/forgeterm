@@ -11,10 +11,28 @@ type ConfirmDelete =
   | { type: 'project'; path: string; name: string }
   | { type: 'workspace'; name: string }
 
+type FilterMode = 'all' | 'workspaces' | 'projects'
+
+function formatLastOpened(ts: number): string {
+  const now = Date.now()
+  const diff = now - ts
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'Just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d ago`
+  if (days < 30) return `${Math.floor(days / 7)}w ago`
+  const date = new Date(ts)
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
 export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectSwitcherProps) {
   const [projects, setProjects] = useState<RecentProject[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [filter, setFilter] = useState('')
+  const [filterMode, setFilterMode] = useState<FilterMode>('all')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDelete | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -53,12 +71,12 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
 
   const q = filter.toLowerCase()
 
-  const filteredWorkspaces = workspaces.filter((ws) =>
+  const filteredWorkspaces = filterMode === 'projects' ? [] : workspaces.filter((ws) =>
     ws.name.toLowerCase().includes(q) ||
     ws.projects.some((p) => p.toLowerCase().includes(q)),
   )
 
-  const filteredProjects = projects.filter((p) =>
+  const filteredProjects = filterMode === 'workspaces' ? [] : projects.filter((p) =>
     p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q),
   )
 
@@ -66,7 +84,7 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
 
   useEffect(() => {
     setSelectedIndex(0)
-  }, [filter])
+  }, [filter, filterMode])
 
   const toggleArrange = useCallback((wsName: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -218,7 +236,8 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
     [totalItems, openSelected, confirmDelete],
   )
 
-  const projectNameMap = new Map(projects.map((p) => [p.path, p.name]))
+  // Build a map from project path -> project data for workspace tags
+  const projectMap = new Map(projects.map((p) => [p.path, p]))
 
   return (
     <div className="modal-overlay" onClick={confirmDelete || welcomeMode ? undefined : onCancel}>
@@ -250,6 +269,19 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
             placeholder="Search projects and workspaces..."
             className="switcher-input"
           />
+        </div>
+
+        {/* Filter tabs */}
+        <div className="switcher-filter-tabs">
+          {(['all', 'workspaces', 'projects'] as FilterMode[]).map((mode) => (
+            <button
+              key={mode}
+              className={`switcher-filter-tab ${filterMode === mode ? 'active' : ''}`}
+              onClick={() => setFilterMode(mode)}
+            >
+              {mode === 'all' ? 'All' : mode === 'workspaces' ? 'Workspaces' : 'Projects'}
+            </button>
+          ))}
         </div>
 
         {/* Auto-import banner */}
@@ -377,16 +409,28 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                       </div>
                     )}
                     <div className="switcher-workspace-projects">
-                      {ws.projects.map((p) => (
-                        <span
-                          key={p}
-                          className={`switcher-workspace-tag ${disabled.has(p) ? 'disabled' : ''}`}
-                          onClick={(e) => toggleWsProject(ws.name, p, e)}
-                          title={disabled.has(p) ? 'Click to enable' : 'Click to disable'}
-                        >
-                          {projectNameMap.get(p) || p.split('/').pop()}
-                        </span>
-                      ))}
+                      {ws.projects.map((p) => {
+                        const proj = projectMap.get(p)
+                        const projColor = proj?.accentColor
+                        return (
+                          <span
+                            key={p}
+                            className={`switcher-workspace-tag ${disabled.has(p) ? 'disabled' : ''}`}
+                            onClick={(e) => toggleWsProject(ws.name, p, e)}
+                            title={disabled.has(p) ? 'Click to enable' : 'Click to disable'}
+                            style={projColor && !disabled.has(p) ? {
+                              borderColor: projColor + '55',
+                              background: projColor + '12',
+                              color: projColor,
+                            } : undefined}
+                          >
+                              {proj?.emoji ? `${proj.emoji} ` : ''}{proj?.name || p.split('/').pop()}
+                            {proj?.isOpen && (
+                              <span className="switcher-open-dot" style={{ background: '#4ade80' }} title="Currently open" />
+                            )}
+                          </span>
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -410,11 +454,12 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
               )}
               {filteredProjects.map((project, i) => {
                 const idx = filteredWorkspaces.length + i
+                const projColor = project.accentColor
                 return (
                   <div
                     key={project.path}
                     className={`switcher-item ${idx === selectedIndex ? 'selected' : ''}`}
-                    style={idx === selectedIndex ? { background: accentColor + '22', borderLeftColor: accentColor } : undefined}
+                    style={idx === selectedIndex ? { background: (projColor || accentColor) + '22', borderLeftColor: projColor || accentColor } : undefined}
                     onClick={() => {
                       window.forgeterm.openProject(project.path)
                       onCancel()
@@ -422,11 +467,25 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                     onMouseEnter={() => setSelectedIndex(idx)}
                   >
                     <div className="switcher-project-row">
-                      <span className="switcher-name">{project.name}</span>
+                      {project.emoji && (
+                        <span className="switcher-project-emoji">{project.emoji}</span>
+                      )}
+                      {!project.emoji && projColor && (
+                        <span className="switcher-project-color" style={{ background: projColor }} />
+                      )}
+                      <span className="switcher-name">
+                        {project.name}
+                        {project.isOpen && (
+                          <span className="switcher-open-dot" style={{ background: '#4ade80' }} title="Currently open" />
+                        )}
+                      </span>
                       {project.workspace && (
-                        <span className="switcher-badge" style={{ borderColor: accentColor + '66', color: accentColor }}>
+                        <span className="switcher-badge" style={{ borderColor: (projColor || accentColor) + '66', color: projColor || accentColor }}>
                           {project.workspace}
                         </span>
+                      )}
+                      {project.lastOpened > 0 && (
+                        <span className="switcher-last-opened">{formatLastOpened(project.lastOpened)}</span>
                       )}
                       <button
                         className="switcher-icon-btn switcher-open-project-btn"
@@ -436,7 +495,7 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                           onCancel()
                         }}
                         title="Open project"
-                        style={{ color: accentColor }}
+                        style={{ color: projColor || accentColor }}
                       >
                         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M5 3l6 5-6 5" />

@@ -1,4 +1,8 @@
 import { app, net } from 'electron'
+import { writeFileSync, chmodSync } from 'fs'
+import { join } from 'path'
+import { spawn } from 'child_process'
+import { tmpdir } from 'os'
 
 // --- Update provider abstraction ---
 // Currently uses GitHub Releases API (notification-only).
@@ -13,6 +17,7 @@ export interface UpdateInfo {
   latestVersion?: string
   releaseUrl?: string
   releaseNotes?: string
+  dmgUrl?: string
 }
 
 export interface UpdateProvider {
@@ -68,10 +73,12 @@ export class GitHubReleaseProvider implements UpdateProvider {
     try {
       const data = await fetchJson(
         `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`,
-      ) as { tag_name: string; html_url: string; body?: string }
+      ) as { tag_name: string; html_url: string; body?: string; assets?: Array<{ name: string; browser_download_url: string }> }
 
       const latestVersion = data.tag_name.replace(/^v/, '')
       const available = compareVersions(currentVersion, latestVersion) > 0
+
+      const dmgAsset = data.assets?.find(a => a.name.endsWith('.dmg'))
 
       return {
         available,
@@ -79,6 +86,7 @@ export class GitHubReleaseProvider implements UpdateProvider {
         latestVersion,
         releaseUrl: data.html_url,
         releaseNotes: data.body ?? undefined,
+        dmgUrl: dmgAsset?.browser_download_url,
       }
     } catch {
       return { available: false, currentVersion }
@@ -171,5 +179,89 @@ export class UpdateManager {
 
   async applyUpdate(): Promise<void> {
     return this.provider.apply()
+  }
+
+  /** Build a shell command string that downloads, mounts, copies, and relaunches. */
+  buildUpdateCommand(dmgUrl: string): string {
+    const appPath = '/Applications/ForgeTerm.app'
+    return [
+      `DMG_URL="${dmgUrl}"`,
+      `DMG_PATH="/tmp/ForgeTerm-update.dmg"`,
+      `echo "Downloading ForgeTerm update..."`,
+      `curl -L -o "$DMG_PATH" "$DMG_URL"`,
+      `echo "Mounting DMG..."`,
+      `MOUNT_DIR=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | grep "/Volumes/" | awk -F'\\t' '{print $NF}')`,
+      `echo "Installing to ${appPath}..."`,
+      `rm -rf "${appPath}"`,
+      `cp -R "$MOUNT_DIR/ForgeTerm.app" "${appPath}"`,
+      `echo "Cleaning up..."`,
+      `hdiutil detach "$MOUNT_DIR" -quiet`,
+      `rm -f "$DMG_PATH"`,
+      `xattr -cr "${appPath}"`,
+      `echo "Launching ForgeTerm..."`,
+      `open "${appPath}"`,
+      `echo "Done!"`,
+    ].join(' && ')
+  }
+
+  /** Spawn a detached update script, then quit the app. */
+  installViaScript(dmgUrl: string): void {
+    const appPath = '/Applications/ForgeTerm.app'
+    const pid = process.pid
+    const scriptPath = join(tmpdir(), `forgeterm-update-${Date.now()}.sh`)
+
+    const script = `#!/bin/bash
+# ForgeTerm self-update script
+# Wait for the app to exit
+echo "Waiting for ForgeTerm to quit..."
+while kill -0 ${pid} 2>/dev/null; do sleep 0.5; done
+
+DMG_PATH="/tmp/ForgeTerm-update.dmg"
+
+echo "Downloading ForgeTerm update..."
+curl -L -o "$DMG_PATH" "${dmgUrl}"
+if [ $? -ne 0 ]; then
+  echo "Download failed."
+  rm -f "$DMG_PATH"
+  exit 1
+fi
+
+echo "Mounting DMG..."
+MOUNT_DIR=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | grep "/Volumes/" | awk -F'\\t' '{print $NF}')
+if [ -z "$MOUNT_DIR" ]; then
+  echo "Mount failed."
+  rm -f "$DMG_PATH"
+  exit 1
+fi
+
+echo "Installing to ${appPath}..."
+rm -rf "${appPath}"
+cp -R "$MOUNT_DIR/ForgeTerm.app" "${appPath}"
+
+echo "Cleaning up..."
+hdiutil detach "$MOUNT_DIR" -quiet
+rm -f "$DMG_PATH"
+
+xattr -cr "${appPath}"
+
+echo "Launching ForgeTerm..."
+open "${appPath}"
+
+# Clean up this script
+rm -f "${scriptPath}"
+`
+
+    writeFileSync(scriptPath, script, 'utf-8')
+    chmodSync(scriptPath, 0o755)
+
+    // Spawn detached so it survives our exit
+    const child = spawn('/bin/bash', [scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+    })
+    child.unref()
+
+    // Quit the app
+    app.quit()
   }
 }

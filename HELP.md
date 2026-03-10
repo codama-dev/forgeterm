@@ -15,6 +15,8 @@ A terminal emulator built for multi-project workflows. Open an entire workspace 
 | ⌘O | Open folder |
 | ⌘B | Toggle sidebar |
 | ⌘K | Clear terminal |
+| ⌘↓ | Scroll to bottom |
+| ⌘↑ | Scroll to top |
 | ⌘1-9 | Switch to session |
 | ⌘⇧= | Lighten theme |
 | ⌘⇧- | Darken theme |
@@ -77,6 +79,46 @@ Cycle between three sidebar modes with ⌘B:
 Configure everything per-project with ⌘,. Set the project name, assign it to a workspace, and manage startup sessions - all saved to `.forgeterm.json` in your project root.
 
 ![Project settings with session configuration](screenshots/feature-project-settings.png)
+
+### Notifications
+
+Get notified when long-running commands finish - builds, deploys, test suites, AI agents. Notifications are native macOS alerts that show up even when ForgeTerm is in the background. Clicking a notification focuses the right window and session.
+
+**Setup:**
+
+1. Go to **ForgeTerm > Install Command Line Tool...** in the menu bar
+2. This installs the `forgeterm` command to `/usr/local/bin/forgeterm`
+3. That's it - you can now send notifications from any ForgeTerm session
+
+**Usage:**
+
+```bash
+# Basic notification
+forgeterm notify "Build complete"
+
+# Custom title
+forgeterm notify "All 47 tests passed" --title "Test Suite"
+
+# Silent (no sound)
+forgeterm notify "Deploy done" --no-sound
+
+# Chain with any command
+pnpm build && forgeterm notify "Build done" || forgeterm notify "Build failed"
+npm test && forgeterm notify "Tests passed"
+```
+
+**With AI agents (Claude Code, etc.):**
+
+Add this to your project's `CLAUDE.md`:
+```
+When you finish a task, run: forgeterm notify "Done"
+```
+
+The agent will send a notification when it completes work, so you can switch to other tasks without watching the terminal.
+
+**How it works:**
+
+ForgeTerm runs a local socket server. The `forgeterm notify` command sends a message to this socket. When run inside a ForgeTerm session, it automatically knows which project and session it belongs to (via environment variables), so clicking the notification focuses the correct window and session tab. No network, no external services - everything stays local.
 
 ### Cross-Platform
 

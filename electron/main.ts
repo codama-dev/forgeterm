@@ -727,7 +727,21 @@ function setupIpcHandlers() {
   })
 
   ipcMain.handle('projects:get-recent', () => {
-    return loadRecentProjects()
+    const projects = loadRecentProjects()
+    const openPaths = new Set(
+      Array.from(windowStates.values()).map((s) => s.projectPath),
+    )
+    return projects
+      .map((p) => {
+        const config = loadConfig(p.path)
+        return {
+          ...p,
+          accentColor: config?.window?.accentColor,
+          emoji: config?.window?.emoji,
+          isOpen: openPaths.has(p.path),
+        }
+      })
+      .sort((a, b) => (b.lastOpened || 0) - (a.lastOpened || 0))
   })
 
   ipcMain.handle('projects:open', (event, projectPath: string) => {
@@ -991,6 +1005,65 @@ function setupIpcHandlers() {
     return templates
   })
 
+  // --- CLI install ---
+
+  function getCliDismissedPath(): string {
+    return path.join(app.getPath('userData'), 'cli-prompt-dismissed.json')
+  }
+
+  function getCliSourcePath(): string {
+    if (app.isPackaged) {
+      return path.join(process.resourcesPath, 'bin', 'forgeterm-cli.sh')
+    }
+    return path.join(__dirname, '..', 'bin', 'forgeterm-cli.sh')
+  }
+
+  ipcMain.handle('cli:is-installed', () => {
+    return fs.existsSync('/usr/local/bin/forgeterm')
+  })
+
+  ipcMain.handle('cli:should-show-prompt', () => {
+    if (fs.existsSync('/usr/local/bin/forgeterm')) return false
+    try {
+      const data = JSON.parse(fs.readFileSync(getCliDismissedPath(), 'utf-8'))
+      return !data.dismissed
+    } catch {
+      return true
+    }
+  })
+
+  ipcMain.handle('cli:dismiss-prompt', () => {
+    fs.writeFileSync(getCliDismissedPath(), JSON.stringify({ dismissed: true }), 'utf-8')
+  })
+
+  ipcMain.handle('cli:install', (): { success: boolean; error?: string } => {
+    const targetPath = '/usr/local/bin/forgeterm'
+    const sourcePath = getCliSourcePath()
+
+    if (!fs.existsSync(sourcePath)) {
+      return { success: false, error: `CLI script not found at ${sourcePath}` }
+    }
+
+    try {
+      // Try direct copy first
+      try {
+        fs.copyFileSync(sourcePath, targetPath)
+        fs.chmodSync(targetPath, 0o755)
+      } catch {
+        // Need elevated permissions
+        const script = `do shell script "cp '${sourcePath}' '${targetPath}' && chmod 755 '${targetPath}'" with administrator privileges`
+        execSync(`osascript -e '${script}'`)
+      }
+      return { success: true }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.includes('User canceled')) {
+        return { success: false, error: 'cancelled' }
+      }
+      return { success: false, error: msg }
+    }
+  })
+
   // --- Update checks ---
 
   ipcMain.handle('update:check', async (): Promise<UpdateInfo> => {
@@ -1007,6 +1080,73 @@ function setupIpcHandlers() {
   ipcMain.handle('update:apply', async () => {
     await updateManager.applyUpdate()
   })
+
+  ipcMain.handle('update:install', () => {
+    const info = updateManager.getLastCheck()
+    if (!info?.dmgUrl) throw new Error('No DMG URL available')
+    updateManager.installViaScript(info.dmgUrl)
+  })
+
+  ipcMain.handle('update:get-command', (): string | null => {
+    const info = updateManager.getLastCheck()
+    if (!info?.dmgUrl) return null
+    return updateManager.buildUpdateCommand(info.dmgUrl)
+  })
+}
+
+async function installCli() {
+  const targetPath = '/usr/local/bin/forgeterm'
+  let sourcePath: string
+
+  if (app.isPackaged) {
+    // In packaged app, the CLI is in the Resources directory
+    sourcePath = path.join(process.resourcesPath, 'bin', 'forgeterm-cli.sh')
+  } else {
+    // In dev, it's in the project bin directory
+    sourcePath = path.join(__dirname, '..', 'bin', 'forgeterm-cli.sh')
+  }
+
+  if (!fs.existsSync(sourcePath)) {
+    dialog.showErrorBox('Install Failed', `CLI script not found at ${sourcePath}`)
+    return
+  }
+
+  try {
+    // Check if already installed and up to date
+    if (fs.existsSync(targetPath)) {
+      const existing = fs.readFileSync(targetPath, 'utf-8')
+      const source = fs.readFileSync(sourcePath, 'utf-8')
+      if (existing === source) {
+        dialog.showMessageBox({
+          type: 'info',
+          message: 'Command line tool already installed',
+          detail: `The 'forgeterm' command is available at ${targetPath}`,
+        })
+        return
+      }
+    }
+
+    // Try direct copy first (works if /usr/local/bin is writable)
+    try {
+      fs.copyFileSync(sourcePath, targetPath)
+      fs.chmodSync(targetPath, 0o755)
+    } catch {
+      // Need elevated permissions - use osascript to prompt for admin
+      const script = `do shell script "cp '${sourcePath}' '${targetPath}' && chmod 755 '${targetPath}'" with administrator privileges`
+      execSync(`osascript -e '${script}'`)
+    }
+
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'Command line tool installed',
+      detail: `You can now use 'forgeterm' from any terminal.\n\nTry: forgeterm notify "Hello!"`,
+    })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (!msg.includes('User canceled')) {
+      dialog.showErrorBox('Install Failed', msg)
+    }
+  }
 }
 
 function buildMenu() {
@@ -1015,6 +1155,13 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: 'about' },
+        { type: 'separator' },
+        {
+          label: 'Install Command Line Tool...',
+          click: async () => {
+            await installCli()
+          },
+        },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },

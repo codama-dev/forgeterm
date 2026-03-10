@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -46,6 +46,7 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
   const initializedRef = useRef(false)
   const cleanupRef = useRef<(() => void) | null>(null)
   const configRef = useRef(config)
+  const [isScrolledUp, setIsScrolledUp] = useState(false)
   configRef.current = config
 
   const initTerminal = useCallback(() => {
@@ -122,11 +123,18 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     container.addEventListener('dragover', handleDragOver)
     container.addEventListener('drop', handleDrop)
 
+    // Track scroll position to show/hide scroll-to-bottom button
+    const scrollDisposable = terminal.onScroll(() => {
+      const isAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY
+      setIsScrolledUp(!isAtBottom)
+    })
+
     terminals.set(sessionId, { terminal, fitAddon })
 
     cleanupRef.current = () => {
       container.removeEventListener('dragover', handleDragOver)
       container.removeEventListener('drop', handleDrop)
+      scrollDisposable.dispose()
       dataHandlers.delete(sessionId)
       if (resizeTimer) clearTimeout(resizeTimer)
       resizeObserver.disconnect()
@@ -144,7 +152,7 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     }
   }, [initTerminal])
 
-  // Fit when becoming active
+  // Fit and scroll to bottom when becoming active
   useEffect(() => {
     if (active) {
       const entry = terminals.get(sessionId)
@@ -152,6 +160,8 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
         requestAnimationFrame(() => {
           entry.fitAddon.fit()
           window.forgeterm.resizeSession(sessionId, entry.terminal.cols, entry.terminal.rows)
+          entry.terminal.scrollToBottom()
+          setIsScrolledUp(false)
           entry.terminal.focus()
         })
       }
@@ -172,12 +182,49 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     }
   }, [config, sessionId])
 
+  const handleScrollToBottom = useCallback(() => {
+    const entry = terminals.get(sessionId)
+    if (entry) {
+      entry.terminal.scrollToBottom()
+      setIsScrolledUp(false)
+      entry.terminal.focus()
+    }
+  }, [sessionId])
+
+  const handleScrollToTop = useCallback(() => {
+    const entry = terminals.get(sessionId)
+    if (entry) {
+      entry.terminal.scrollToTop()
+      entry.terminal.focus()
+    }
+  }, [sessionId])
+
   return (
-    <div
-      ref={containerRef}
-      className="terminal-container"
-      style={{ display: active ? 'block' : 'none' }}
-    />
+    <div className="terminal-wrapper" style={{ display: active ? 'block' : 'none' }}>
+      <div ref={containerRef} className="terminal-container" />
+      {active && isScrolledUp && (
+        <div className="terminal-scroll-controls">
+          <button
+            className="terminal-scroll-btn"
+            onClick={handleScrollToTop}
+            title="Scroll to top"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 2.5L2.5 7.5M7 2.5L11.5 7.5M7 2.5V12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+          <button
+            className="terminal-scroll-btn"
+            onClick={handleScrollToBottom}
+            title="Scroll to bottom"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M7 11.5L2.5 6.5M7 11.5L11.5 6.5M7 11.5V2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -185,5 +232,19 @@ export function clearTerminal(sessionId: string) {
   const entry = terminals.get(sessionId)
   if (entry) {
     entry.terminal.clear()
+  }
+}
+
+export function scrollTerminalToTop(sessionId: string) {
+  const entry = terminals.get(sessionId)
+  if (entry) {
+    entry.terminal.scrollToTop()
+  }
+}
+
+export function scrollTerminalToBottom(sessionId: string) {
+  const entry = terminals.get(sessionId)
+  if (entry) {
+    entry.terminal.scrollToBottom()
   }
 }

@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Sidebar } from './components/Sidebar'
-import { TerminalView, clearTerminal } from './components/TerminalView'
+import { TerminalView, clearTerminal, scrollTerminalToTop, scrollTerminalToBottom } from './components/TerminalView'
 import { NewSessionModal } from './components/NewSessionModal'
 import { ThemeEditor } from './components/ThemeEditor'
 import { ProjectSettings } from './components/ProjectSettings'
 import { ProjectSwitcher } from './components/ProjectSwitcher'
 import { HelpModal } from './components/HelpModal'
+import { CliInstallModal } from './components/CliInstallModal'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useSessionStore } from './store/sessionStore'
 import type { ForgeTermConfig } from '../shared/types'
@@ -24,6 +25,8 @@ function App() {
   const [showProjectSwitcher, setShowProjectSwitcher] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [showWelcome, setShowWelcome] = useState(false)
+  const [showCliInstall, setShowCliInstall] = useState(false)
+  const [showCliPrompt, setShowCliPrompt] = useState(false)
   const [folderName, setFolderName] = useState('ForgeTerm')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('full')
   const [previewTheme, setPreviewTheme] = useState<WindowTheme | null>(null)
@@ -86,6 +89,11 @@ function App() {
 
     init()
   }, [createSession])
+
+  // Check if CLI install prompt should show
+  useEffect(() => {
+    window.forgeterm.shouldShowCliPrompt().then(setShowCliPrompt)
+  }, [])
 
   // Listen for session exits
   useEffect(() => {
@@ -230,6 +238,18 @@ function App() {
         }
       }
 
+      // Cmd+Down: scroll to bottom
+      if (mod && e.key === 'ArrowDown') {
+        e.preventDefault()
+        if (activeSessionId) scrollTerminalToBottom(activeSessionId)
+      }
+
+      // Cmd+Up: scroll to top
+      if (mod && e.key === 'ArrowUp') {
+        e.preventDefault()
+        if (activeSessionId) scrollTerminalToTop(activeSessionId)
+      }
+
       // Cmd+1-9: switch sessions
       if (mod && e.key >= '1' && e.key <= '9') {
         e.preventDefault()
@@ -263,6 +283,7 @@ function App() {
         setShowProjectSettings(false)
         setShowProjectSwitcher(false)
         setShowHelp(false)
+        setShowCliInstall(false)
       }
     }
 
@@ -370,7 +391,7 @@ function App() {
             onHelp={() => setShowHelp(true)}
           />
         )}
-        <div className="terminal-area">
+        <div className={`terminal-area${sidebarMode === 'hidden' || showCliPrompt ? ' has-floating' : ''}`}>
           {sessions.map((session) => (
             <TerminalView
               key={session.id}
@@ -399,6 +420,20 @@ function App() {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
               </button>
             </div>
+          )}
+          {showCliPrompt && (
+            <button
+              className="cli-install-hint"
+              onClick={() => setShowCliInstall(true)}
+              title="Install CLI tool"
+              style={{ '--cli-glow-color': accentColor } as React.CSSProperties}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="4 17 10 11 4 5" />
+                <line x1="12" y1="19" x2="20" y2="19" />
+              </svg>
+              Install CLI
+            </button>
           )}
         </div>
       </div>
@@ -442,6 +477,17 @@ function App() {
         <HelpModal
           accentColor={accentColor}
           onClose={() => setShowHelp(false)}
+        />
+      )}
+
+      {showCliInstall && (
+        <CliInstallModal
+          accentColor={accentColor}
+          onClose={() => setShowCliInstall(false)}
+          onInstalled={() => {
+            setShowCliInstall(false)
+            setShowCliPrompt(false)
+          }}
         />
       )}
 

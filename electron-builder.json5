@@ -11,6 +11,12 @@
     "dist",
     "dist-electron"
   ],
+  "extraResources": [
+    {
+      "from": "bin/forgeterm-cli.sh",
+      "to": "bin/forgeterm-cli.sh"
+    }
+  ],
   "mac": {
     "icon": "build/icon.icns",
     "target": [

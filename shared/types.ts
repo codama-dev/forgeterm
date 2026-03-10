@@ -50,6 +50,9 @@ export interface RecentProject {
   lastOpened: number
   workspace?: string
   sidebarMode?: 'full' | 'compact' | 'hidden'
+  accentColor?: string
+  emoji?: string
+  isOpen?: boolean
 }
 
 export interface Workspace {
@@ -85,6 +88,7 @@ export interface UpdateInfo {
   latestVersion?: string
   releaseUrl?: string
   releaseNotes?: string
+  dmgUrl?: string
   supportsAutoInstall?: boolean
 }
 
@@ -162,9 +166,15 @@ export interface ForgeTermAPI {
   importFromPath: (filePath: string) => Promise<ImportResult | null>
   dismissImportSuggestion: () => Promise<void>
   shouldShowImportSuggestion: () => Promise<boolean>
+  isCliInstalled: () => Promise<boolean>
+  installCli: () => Promise<{ success: boolean; error?: string }>
+  dismissCliPrompt: () => Promise<void>
+  shouldShowCliPrompt: () => Promise<boolean>
   checkForUpdate: () => Promise<UpdateInfo>
   getLastUpdateCheck: () => Promise<UpdateInfo | null>
   applyUpdate: () => Promise<void>
+  installUpdate: () => Promise<void>
+  getUpdateCommand: () => Promise<string | null>
   onUpdateAvailable: (callback: (info: UpdateInfo) => void) => () => void
   getFavoriteThemes: () => Promise<FavoriteTheme[]>
   saveFavoriteTheme: (theme: FavoriteTheme) => Promise<void>
