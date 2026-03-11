@@ -152,7 +152,10 @@ export interface ForgeTermAPI {
   setWorkspaceArrange: (workspaceName: string, arrange: boolean) => Promise<void>
   setWorkspaceScreenPrefs: (workspaceName: string, displayCount: number, indices: number[]) => Promise<void>
   getDisplays: () => Promise<DisplayInfo[]>
+  highlightDisplay: (displayIndex: number, color: string) => Promise<void>
+  clearHighlightDisplay: (displayIndex: number) => Promise<void>
   toggleWorkspaceProject: (workspaceName: string, projectPath: string) => Promise<void>
+  reorderWorkspaceProjects: (workspaceName: string, newOrder: string[]) => Promise<void>
   getSidebarMode: () => Promise<'full' | 'compact' | 'hidden' | undefined>
   saveSidebarMode: (mode: 'full' | 'compact' | 'hidden') => Promise<void>
   importVSCodeProjects: () => Promise<ImportResult | null>

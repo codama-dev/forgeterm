@@ -46,3 +46,6 @@ Per-project `.forgeterm.json` files configure theme colors, font, window chrome,
 
 ## CLI entry
 `bin/forgeterm.cjs` is the CLI entry point. The app accepts a directory path argument to open a project window.
+
+When you finish a task, run: forgeterm notify "Done"
+This sends a native notification via ForgeTerm. It automatically knows which project and session you're in. No config needed.

@@ -822,6 +822,67 @@ function setupIpcHandlers() {
     }))
   })
 
+  // Track active highlight windows to clean up
+  const highlightWindows = new Map<number, BrowserWindow>()
+
+  ipcMain.handle('displays:highlight', (_event, displayIndex: number, color: string) => {
+    const allDisplays = screen.getAllDisplays()
+    if (displayIndex < 0 || displayIndex >= allDisplays.length) return
+
+    // Clean up existing highlight for this display
+    const existing = highlightWindows.get(displayIndex)
+    if (existing && !existing.isDestroyed()) existing.close()
+
+    const display = allDisplays[displayIndex]
+    const { x, y, width, height } = display.bounds
+    const borderWidth = 6
+    const labelSize = 80
+
+    const win = new BrowserWindow({
+      x, y, width, height,
+      frame: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      focusable: false,
+      hasShadow: false,
+      resizable: false,
+      movable: false,
+      type: 'panel',
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    })
+    win.setIgnoreMouseEvents(true)
+    highlightWindows.set(displayIndex, win)
+
+    win.loadURL(`data:text/html,<!DOCTYPE html><html><head><style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{background:transparent;overflow:hidden}
+      .border{position:fixed;inset:0;border:${borderWidth}px solid ${color};border-radius:8px;pointer-events:none;animation:fadeIn 0.15s ease-out}
+      .label{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:${labelSize}px;height:${labelSize}px;border-radius:50%;background:${color}33;border:3px solid ${color};display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;font-size:36px;font-weight:700;color:${color};animation:fadeIn 0.15s ease-out}
+      @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+    </style></head><body><div class="border"></div><div class="label">${displayIndex + 1}</div></body></html>`)
+
+    setTimeout(() => {
+      if (!win.isDestroyed()) win.close()
+      highlightWindows.delete(displayIndex)
+    }, 1200)
+  })
+
+  ipcMain.handle('displays:clear-highlight', (_event, displayIndex: number) => {
+    const existing = highlightWindows.get(displayIndex)
+    if (existing && !existing.isDestroyed()) existing.close()
+    highlightWindows.delete(displayIndex)
+  })
+
+  ipcMain.handle('workspaces:reorder-projects', (_event, workspaceName: string, newOrder: string[]) => {
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find((w) => w.name === workspaceName)
+    if (ws) {
+      ws.projects = newOrder
+      saveWorkspaces(workspaces)
+    }
+  })
+
   ipcMain.handle('workspaces:toggle-project', (_event, workspaceName: string, projectPath: string) => {
     const workspaces = loadWorkspaces()
     const ws = workspaces.find((w) => w.name === workspaceName)

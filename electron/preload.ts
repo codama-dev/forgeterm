@@ -115,8 +115,17 @@ const api: ForgeTermAPI = {
   getDisplays: () =>
     ipcRenderer.invoke('displays:get'),
 
+  highlightDisplay: (displayIndex: number, color: string) =>
+    ipcRenderer.invoke('displays:highlight', displayIndex, color),
+
+  clearHighlightDisplay: (displayIndex: number) =>
+    ipcRenderer.invoke('displays:clear-highlight', displayIndex),
+
   toggleWorkspaceProject: (workspaceName: string, projectPath: string) =>
     ipcRenderer.invoke('workspaces:toggle-project', workspaceName, projectPath),
+
+  reorderWorkspaceProjects: (workspaceName: string, newOrder: string[]) =>
+    ipcRenderer.invoke('workspaces:reorder-projects', workspaceName, newOrder),
 
   getSidebarMode: () =>
     ipcRenderer.invoke('project:get-sidebar-mode'),

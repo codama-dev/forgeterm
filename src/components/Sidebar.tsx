@@ -14,6 +14,7 @@ interface SidebarProps {
   sidebarForeground?: string
   buttonBackground?: string
   onNewSession: () => void
+  onQuickSession: () => void
   onDuplicateSession: (name: string, command?: string) => void
   onProjectSettings: () => void
   onThemeEditor: () => void
@@ -27,6 +28,7 @@ export function Sidebar({
   sidebarForeground,
   buttonBackground,
   onNewSession,
+  onQuickSession,
   onDuplicateSession,
   onProjectSettings,
   onThemeEditor,
@@ -198,6 +200,18 @@ export function Sidebar({
             )}
           </div>
         ))}
+        {!compact && (
+          <button
+            className="sidebar-quick-add"
+            onClick={onQuickSession}
+            title="Quick new shell session"
+            style={{ borderColor: accentColor + '30', color: accentColor }}
+          >
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M8 3v10M3 8h10" />
+            </svg>
+          </button>
+        )}
       </div>
       <div className={`sidebar-actions ${compact ? 'sidebar-actions-compact' : ''}`}>
         <button

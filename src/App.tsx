@@ -385,6 +385,13 @@ function App() {
             sidebarForeground={sidebarFg}
             buttonBackground={buttonBg}
             onNewSession={() => setShowModal(true)}
+            onQuickSession={async () => {
+              const id = await window.forgeterm.createSession('shell')
+              if (id) {
+                addSession({ id, name: 'shell', running: true })
+                setActive(id)
+              }
+            }}
             onDuplicateSession={(name, command) => createSession(name, command)}
             onProjectSettings={() => setShowProjectSettings(true)}
             onThemeEditor={() => setShowThemeEditor(true)}

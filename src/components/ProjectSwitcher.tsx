@@ -11,7 +11,93 @@ type ConfirmDelete =
   | { type: 'project'; path: string; name: string }
   | { type: 'workspace'; name: string }
 
-type FilterMode = 'all' | 'workspaces' | 'projects'
+type FilterMode = 'recent' | 'workspaces' | 'projects' | 'all'
+
+interface TileRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+function calculateTilePositions(count: number, area: { width: number; height: number }): TileRect[] {
+  const { width, height } = area
+  if (count <= 0) return []
+  if (count === 1) return [{ x: 0, y: 0, width, height }]
+  if (count === 2) {
+    const w = Math.floor(width / 2)
+    return [
+      { x: 0, y: 0, width: w, height },
+      { x: w, y: 0, width: width - w, height },
+    ]
+  }
+  if (count === 3) {
+    const masterW = Math.floor(width / 2)
+    const stackW = width - masterW
+    const halfH = Math.floor(height / 2)
+    return [
+      { x: 0, y: 0, width: masterW, height },
+      { x: masterW, y: 0, width: stackW, height: halfH },
+      { x: masterW, y: halfH, width: stackW, height: height - halfH },
+    ]
+  }
+  if (count === 4) {
+    const w = Math.floor(width / 2)
+    const h = Math.floor(height / 2)
+    return [
+      { x: 0, y: 0, width: w, height: h },
+      { x: w, y: 0, width: width - w, height: h },
+      { x: 0, y: h, width: w, height: height - h },
+      { x: w, y: h, width: width - w, height: height - h },
+    ]
+  }
+  if (count === 5) {
+    const h = Math.floor(height / 2)
+    const topW = Math.floor(width / 3)
+    const botW = Math.floor(width / 2)
+    return [
+      { x: 0, y: 0, width: topW, height: h },
+      { x: topW, y: 0, width: topW, height: h },
+      { x: topW * 2, y: 0, width: width - topW * 2, height: h },
+      { x: 0, y: h, width: botW, height: height - h },
+      { x: botW, y: h, width: width - botW, height: height - h },
+    ]
+  }
+  // 6+: 2x3 grid
+  const colW = Math.floor(width / 3)
+  const rowH = Math.floor(height / 2)
+  const positions: TileRect[] = []
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 3; col++) {
+      positions.push({
+        x: col * colW,
+        y: row * rowH,
+        width: col === 2 ? width - colW * 2 : colW,
+        height: row === 1 ? height - rowH : rowH,
+      })
+    }
+  }
+  return positions.slice(0, count)
+}
+
+function computeDistributionPreview(
+  enabledCount: number,
+  screenCount: number,
+): { screenIdx: number; tiles: TileRect[] }[] {
+  const previewW = 80
+  const previewH = 50
+  const base = Math.floor(enabledCount / screenCount)
+  const extra = enabledCount % screenCount
+  const result: { screenIdx: number; tiles: TileRect[] }[] = []
+  for (let s = 0; s < screenCount; s++) {
+    const count = base + (s < extra ? 1 : 0)
+    result.push({
+      screenIdx: s,
+      tiles: count > 0 ? calculateTilePositions(count, { width: previewW, height: previewH }) : [],
+    })
+  }
+  return result
+}
 
 function formatLastOpened(ts: number): string {
   const now = Date.now()
@@ -32,7 +118,7 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
   const [projects, setProjects] = useState<RecentProject[]>([])
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [filter, setFilter] = useState('')
-  const [filterMode, setFilterMode] = useState<FilterMode>('all')
+  const [filterMode, setFilterMode] = useState<FilterMode>('recent')
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [confirmDelete, setConfirmDelete] = useState<ConfirmDelete | null>(null)
   const [toast, setToast] = useState<string | null>(null)
@@ -40,6 +126,10 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
   const [detectedEditors, setDetectedEditors] = useState<DetectedEditor[]>([])
   const [showImportBanner, setShowImportBanner] = useState(false)
   const [displays, setDisplays] = useState<DisplayInfo[]>([])
+  const [dragWs, setDragWs] = useState<string | null>(null)
+  const [dragIdx, setDragIdx] = useState<number>(-1)
+  const [dragOverIdx, setDragOverIdx] = useState<number>(-1)
+  const [showArrangeHelp, setShowArrangeHelp] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const refreshData = useCallback(() => {
@@ -71,16 +161,38 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
 
   const q = filter.toLowerCase()
 
-  const filteredWorkspaces = filterMode === 'projects' ? [] : workspaces.filter((ws) =>
+  const filteredWorkspaces = (filterMode === 'projects') ? [] : workspaces.filter((ws) =>
     ws.name.toLowerCase().includes(q) ||
     ws.projects.some((p) => p.toLowerCase().includes(q)),
   )
 
-  const filteredProjects = filterMode === 'workspaces' ? [] : projects.filter((p) =>
-    p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q),
-  )
+  const filteredProjects = filterMode === 'workspaces' ? [] : (() => {
+    const filtered = projects.filter((p) =>
+      p.name.toLowerCase().includes(q) || p.path.toLowerCase().includes(q),
+    )
+    // "All" tab sorts alphabetically; others keep lastOpened order
+    if (filterMode === 'all') {
+      return [...filtered].sort((a, b) => a.name.localeCompare(b.name))
+    }
+    return filtered
+  })()
 
-  const totalItems = filteredWorkspaces.length + filteredProjects.length
+  // In "Recent" mode, sort workspaces by most recent member project
+  const getWorkspaceRecency = useCallback((ws: Workspace): number => {
+    let maxTs = 0
+    for (const p of ws.projects) {
+      const proj = projects.find((pr) => pr.path === p)
+      if (proj && proj.lastOpened > maxTs) maxTs = proj.lastOpened
+    }
+    return maxTs
+  }, [projects])
+
+  // Sort workspaces by recency in recent mode
+  const sortedWorkspaces = filterMode === 'recent'
+    ? [...filteredWorkspaces].sort((a, b) => getWorkspaceRecency(b) - getWorkspaceRecency(a))
+    : filteredWorkspaces
+
+  const totalItems = sortedWorkspaces.length + filteredProjects.length
 
   useEffect(() => {
     setSelectedIndex(0)
@@ -144,6 +256,44 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
     )
   }, [])
 
+  const handleDragStart = useCallback((wsName: string, idx: number) => {
+    setDragWs(wsName)
+    setDragIdx(idx)
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent, idx: number) => {
+    e.preventDefault()
+    setDragOverIdx(idx)
+  }, [])
+
+  const handleDrop = useCallback((wsName: string, dropIdx: number) => {
+    if (dragWs !== wsName || dragIdx < 0 || dragIdx === dropIdx) {
+      setDragWs(null)
+      setDragIdx(-1)
+      setDragOverIdx(-1)
+      return
+    }
+    setWorkspaces((prev) =>
+      prev.map((ws) => {
+        if (ws.name !== wsName) return ws
+        const newProjects = [...ws.projects]
+        const [moved] = newProjects.splice(dragIdx, 1)
+        newProjects.splice(dropIdx, 0, moved)
+        window.forgeterm.reorderWorkspaceProjects(wsName, newProjects)
+        return { ...ws, projects: newProjects }
+      }),
+    )
+    setDragWs(null)
+    setDragIdx(-1)
+    setDragOverIdx(-1)
+  }, [dragWs, dragIdx])
+
+  const handleDragEnd = useCallback(() => {
+    setDragWs(null)
+    setDragIdx(-1)
+    setDragOverIdx(-1)
+  }, [])
+
   const openWorkspace = useCallback((ws: Workspace) => {
     const disabled = new Set(ws.disabledProjects || [])
     const enabled = ws.projects.filter((p) => !disabled.has(p))
@@ -153,16 +303,16 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
   }, [onCancel])
 
   const openSelected = useCallback(() => {
-    if (selectedIndex < filteredWorkspaces.length) {
-      openWorkspace(filteredWorkspaces[selectedIndex])
+    if (selectedIndex < sortedWorkspaces.length) {
+      openWorkspace(sortedWorkspaces[selectedIndex])
     } else {
-      const project = filteredProjects[selectedIndex - filteredWorkspaces.length]
+      const project = filteredProjects[selectedIndex - sortedWorkspaces.length]
       if (project) {
         window.forgeterm.openProject(project.path)
         onCancel()
       }
     }
-  }, [filteredWorkspaces, filteredProjects, selectedIndex, onCancel])
+  }, [sortedWorkspaces, filteredProjects, selectedIndex, onCancel])
 
   const handleOpenFolder = useCallback(async () => {
     await window.forgeterm.openFolder()
@@ -273,13 +423,13 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
 
         {/* Filter tabs */}
         <div className="switcher-filter-tabs">
-          {(['all', 'workspaces', 'projects'] as FilterMode[]).map((mode) => (
+          {(['recent', 'workspaces', 'projects', 'all'] as FilterMode[]).map((mode) => (
             <button
               key={mode}
               className={`switcher-filter-tab ${filterMode === mode ? 'active' : ''}`}
               onClick={() => setFilterMode(mode)}
             >
-              {mode === 'all' ? 'All' : mode === 'workspaces' ? 'Workspaces' : 'Projects'}
+              {mode === 'recent' ? 'Recent' : mode === 'workspaces' ? 'Workspaces' : mode === 'projects' ? 'Projects' : 'All'}
             </button>
           ))}
         </div>
@@ -318,19 +468,21 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
         )}
 
         <div className="switcher-list">
-          {filteredWorkspaces.length > 0 && (
+          {sortedWorkspaces.length > 0 && (
             <>
-              <div className="switcher-section-label">
-                Workspaces
-                <button
-                  className="switcher-edit-config-btn"
-                  onClick={() => window.forgeterm.openDataFile('workspaces')}
-                  title="Edit workspaces.json"
-                >
-                  <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" /></svg>
-                </button>
-              </div>
-              {filteredWorkspaces.map((ws, i) => {
+              {filterMode !== 'recent' && (
+                <div className="switcher-section-label">
+                  Workspaces
+                  <button
+                    className="switcher-edit-config-btn"
+                    onClick={() => window.forgeterm.openDataFile('workspaces')}
+                    title="Edit workspaces.json"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" /></svg>
+                  </button>
+                </div>
+              )}
+              {sortedWorkspaces.map((ws, i) => {
                 const arrange = ws.arrange ?? true
                 const disabled = new Set(ws.disabledProjects || [])
                 const enabledCount = ws.projects.filter((p) => !disabled.has(p)).length
@@ -373,6 +525,22 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                           <rect x="9" y="9" width="6" height="6" rx="1" />
                         </svg>
                       </button>
+                      {arrange && (
+                        <button
+                          className={`switcher-icon-btn arrange-help-btn ${showArrangeHelp === ws.name ? 'active' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setShowArrangeHelp(showArrangeHelp === ws.name ? null : ws.name)
+                          }}
+                          title="How arrangement works"
+                        >
+                          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="8" cy="8" r="7" />
+                            <path d="M6 6.5a2 2 0 0 1 3.94.5c0 1.33-2 2-2 2" />
+                            <circle cx="8" cy="12" r="0.5" fill="currentColor" />
+                          </svg>
+                        </button>
+                      )}
                       <button
                         className="switcher-icon-btn switcher-delete-btn"
                         onClick={(e) => {
@@ -384,47 +552,50 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                         <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg>
                       </button>
                     </div>
-                    {arrange && displays.length > 1 && (
-                      <div className="screen-selector">
-                        <span className="screen-selector-label">Screens:</span>
-                        {displays.map((d, idx) => {
-                          const selected = getSelectedScreens(ws)
-                          const isActive = selected.includes(idx)
-                          return (
-                            <button
-                              key={d.id}
-                              className={`screen-btn ${isActive ? 'active' : ''}`}
-                              style={isActive ? { borderColor: accentColor, color: accentColor } : undefined}
-                              onClick={(e) => toggleScreen(ws.name, idx, e)}
-                              title={`Display ${idx + 1}${d.isPrimary ? ' (primary)' : ''} - ${d.bounds.width}x${d.bounds.height}`}
-                            >
-                              <svg width="14" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1.2">
-                                <rect x="0.5" y="0.5" width="13" height="8" rx="1" />
-                                <path d="M5 9.5h4" />
-                              </svg>
-                              <span>{idx + 1}</span>
-                            </button>
-                          )
-                        })}
+                    {showArrangeHelp === ws.name && (
+                      <div className="arrange-help-panel">
+                        <div className="arrange-help-row"><strong>Drag</strong> project tags to reorder their window positions (A, B, C...)</div>
+                        <div className="arrange-help-row"><strong>Click</strong> a tag to enable/disable it from the workspace launch</div>
+                        {displays.length > 1 && (
+                          <div className="arrange-help-row"><strong>Click screens</strong> in the map to choose which displays to use</div>
+                        )}
+                        <div className="arrange-help-row">Windows are tiled in letter order across selected screens</div>
+                        {displays.length > 1 && (
+                          <div className="arrange-help-row"><strong>Hover</strong> a screen to see which physical display it is</div>
+                        )}
                       </div>
                     )}
                     <div className="switcher-workspace-projects">
-                      {ws.projects.map((p) => {
+                      {ws.projects.map((p, pi) => {
                         const proj = projectMap.get(p)
                         const projColor = proj?.accentColor
+                        const enabledProjects = ws.projects.filter((pp) => !disabled.has(pp))
+                        const letterIdx = disabled.has(p) ? -1 : enabledProjects.indexOf(p)
+                        const letter = letterIdx >= 0 ? String.fromCharCode(65 + letterIdx) : null
+                        const isDragging = dragWs === ws.name && dragIdx === pi
+                        const isDropTarget = dragWs === ws.name && dragOverIdx === pi && dragIdx !== pi
                         return (
                           <span
                             key={p}
-                            className={`switcher-workspace-tag ${disabled.has(p) ? 'disabled' : ''}`}
+                            draggable
+                            onDragStart={() => handleDragStart(ws.name, pi)}
+                            onDragOver={(e) => handleDragOver(e, pi)}
+                            onDrop={() => handleDrop(ws.name, pi)}
+                            onDragEnd={handleDragEnd}
+                            className={`switcher-workspace-tag ${disabled.has(p) ? 'disabled' : ''} ${isDragging ? 'dragging' : ''} ${isDropTarget ? 'drop-target' : ''}`}
                             onClick={(e) => toggleWsProject(ws.name, p, e)}
-                            title={disabled.has(p) ? 'Click to enable' : 'Click to disable'}
-                            style={projColor && !disabled.has(p) ? {
-                              borderColor: projColor + '55',
-                              background: projColor + '12',
-                              color: projColor,
-                            } : undefined}
+                            title={disabled.has(p) ? 'Click to enable - Drag to reorder' : 'Click to disable - Drag to reorder'}
+                            style={{
+                              ...(projColor && !disabled.has(p) ? {
+                                borderColor: projColor + '55',
+                                background: projColor + '12',
+                                color: projColor,
+                              } : {}),
+                              ...(isDropTarget ? { borderColor: accentColor, borderStyle: 'solid' } : {}),
+                            }}
                           >
-                              {proj?.emoji ? `${proj.emoji} ` : ''}{proj?.name || p.split('/').pop()}
+                            {letter && <span className="ws-tag-letter">{letter}</span>}
+                            {proj?.emoji ? `${proj.emoji} ` : ''}{proj?.name || p.split('/').pop()}
                             {proj?.isOpen && (
                               <span className="switcher-open-dot" style={{ background: '#4ade80' }} title="Currently open" />
                             )}
@@ -432,6 +603,145 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                         )
                       })}
                     </div>
+                    {arrange && (() => {
+                      const enabledProjects = ws.projects.filter((p) => !disabled.has(p))
+                      const selectedScreens = getSelectedScreens(ws)
+                      const screenCount = displays.length > 1 ? selectedScreens.length : 1
+                      const distribution = enabledProjects.length > 0
+                        ? computeDistributionPreview(enabledProjects.length, screenCount)
+                        : []
+
+                      // Build letter-to-screen mapping
+                      const screenTileLetters: { screenIdx: number; tiles: { letter: string; projPath: string }[] }[] = []
+                      let letterOffset = 0
+                      for (const screen of distribution) {
+                        const items: { letter: string; projPath: string }[] = []
+                        for (let ti = 0; ti < screen.tiles.length; ti++) {
+                          items.push({
+                            letter: String.fromCharCode(65 + letterOffset + ti),
+                            projPath: enabledProjects[letterOffset + ti],
+                          })
+                        }
+                        screenTileLetters.push({ screenIdx: screen.screenIdx, tiles: items })
+                        letterOffset += screen.tiles.length
+                      }
+
+                      if (displays.length > 1) {
+                        // Multi-screen: show spatial arrangement with tiles inside
+                        const allBounds = displays.map((d) => d.bounds)
+                        const minX = Math.min(...allBounds.map((b) => b.x))
+                        const minY = Math.min(...allBounds.map((b) => b.y))
+                        const maxX = Math.max(...allBounds.map((b) => b.x + b.width))
+                        const maxY = Math.max(...allBounds.map((b) => b.y + b.height))
+                        const totalW = maxX - minX
+                        const totalH = maxY - minY
+                        const maxW = 280
+                        const maxMapH = 120
+                        const scale = Math.min(maxW / totalW, maxMapH / totalH)
+                        const mapW = totalW * scale
+                        const mapH = totalH * scale
+
+                        return (
+                          <div className="screen-selector">
+                            <div className="screen-arrangement-map">
+                              <div className="screen-map-container" style={{ width: mapW, height: mapH }}>
+                                {displays.map((d, idx) => {
+                                  const isActive = selectedScreens.includes(idx)
+                                  const left = (d.bounds.x - minX) * scale
+                                  const top = (d.bounds.y - minY) * scale
+                                  const w = d.bounds.width * scale
+                                  const h = d.bounds.height * scale
+
+                                  // Find tiles for this screen
+                                  const activeScreenOrder = selectedScreens.indexOf(idx)
+                                  const screenData = activeScreenOrder >= 0 ? screenTileLetters[activeScreenOrder] : null
+                                  const tilePositions = screenData && screenData.tiles.length > 0
+                                    ? calculateTilePositions(screenData.tiles.length, { width: w, height: h })
+                                    : []
+
+                                  return (
+                                    <button
+                                      key={d.id}
+                                      className={`screen-map-display ${isActive ? 'active' : ''}`}
+                                      style={{
+                                        left, top, width: w, height: h,
+                                        borderColor: isActive ? accentColor : undefined,
+                                        background: isActive ? accentColor + '08' : undefined,
+                                      }}
+                                      onClick={(e) => toggleScreen(ws.name, idx, e)}
+                                      onMouseEnter={() => window.forgeterm.highlightDisplay(idx, accentColor)}
+                                      onMouseLeave={() => window.forgeterm.clearHighlightDisplay(idx)}
+                                      title={`Display ${idx + 1}${d.isPrimary ? ' (primary)' : ''} - ${d.bounds.width}x${d.bounds.height}`}
+                                    >
+                                      {isActive && screenData ? (
+                                        <>
+                                          {tilePositions.map((tile, ti) => {
+                                            const proj = projectMap.get(screenData.tiles[ti].projPath)
+                                            const projColor = proj?.accentColor || accentColor
+                                            return (
+                                              <div
+                                                key={ti}
+                                                className="tile-preview-tile"
+                                                style={{
+                                                  left: tile.x,
+                                                  top: tile.y,
+                                                  width: tile.width,
+                                                  height: tile.height,
+                                                  background: projColor + '30',
+                                                  borderColor: projColor + '60',
+                                                }}
+                                              >
+                                                <span className="tile-preview-letter" style={{ color: projColor }}>{screenData.tiles[ti].letter}</span>
+                                              </div>
+                                            )
+                                          })}
+                                        </>
+                                      ) : (
+                                        <span className="screen-map-number">{idx + 1}</span>
+                                      )}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      }
+
+                      // Single screen: show simple tile preview
+                      if (enabledProjects.length === 0) return null
+                      const previewW = 120
+                      const previewH = 75
+                      const tiles = calculateTilePositions(enabledProjects.length, { width: previewW, height: previewH })
+                      return (
+                        <div className="tile-preview-container">
+                          <span className="tile-preview-label">Layout:</span>
+                          <div className="tile-preview-area" style={{ width: previewW, height: previewH }}>
+                            {tiles.map((tile, ti) => {
+                              const proj = projectMap.get(enabledProjects[ti])
+                              const projColor = proj?.accentColor || accentColor
+                              return (
+                                <div
+                                  key={ti}
+                                  className="tile-preview-tile"
+                                  style={{
+                                    left: tile.x,
+                                    top: tile.y,
+                                    width: tile.width,
+                                    height: tile.height,
+                                    background: projColor + '25',
+                                    borderColor: projColor + '55',
+                                  }}
+                                  title={proj?.name || enabledProjects[ti]?.split('/').pop()}
+                                >
+                                  <span className="tile-preview-letter" style={{ color: projColor }}>{String.fromCharCode(65 + ti)}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )
               })}
@@ -440,7 +750,7 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
 
           {filteredProjects.length > 0 && (
             <>
-              {filteredWorkspaces.length > 0 && (
+              {sortedWorkspaces.length > 0 && filterMode !== 'recent' && (
                 <div className="switcher-section-label">
                   Projects
                   <button
@@ -453,7 +763,7 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                 </div>
               )}
               {filteredProjects.map((project, i) => {
-                const idx = filteredWorkspaces.length + i
+                const idx = sortedWorkspaces.length + i
                 const projColor = project.accentColor
                 return (
                   <div
