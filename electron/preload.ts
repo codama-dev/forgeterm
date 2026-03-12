@@ -1,5 +1,5 @@
 import { ipcRenderer, contextBridge } from 'electron'
-import type { ForgeTermAPI, UpdateInfo } from '../shared/types'
+import type { ForgeTermAPI, CliStatus, UpdateInfo } from '../shared/types'
 
 const api: ForgeTermAPI = {
   createSession: (name: string, command?: string, idle?: boolean) =>
@@ -177,6 +177,12 @@ const api: ForgeTermAPI = {
 
   shouldShowCliPrompt: () =>
     ipcRenderer.invoke('cli:should-show-prompt'),
+
+  getCliStatus: () =>
+    ipcRenderer.invoke('cli:get-status') as Promise<CliStatus>,
+
+  restartCliServer: () =>
+    ipcRenderer.invoke('cli:restart-server'),
 
   checkForUpdate: () =>
     ipcRenderer.invoke('update:check'),

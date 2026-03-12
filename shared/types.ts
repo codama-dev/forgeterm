@@ -122,6 +122,8 @@ export interface ForgeTermNotification {
   sessionName?: string
 }
 
+export type CliStatus = 'not-setup' | 'connected' | 'error'
+
 export interface ForgeTermAPI {
   createSession: (name: string, command?: string, idle?: boolean) => Promise<string>
   killSession: (id: string) => Promise<void>
@@ -173,6 +175,8 @@ export interface ForgeTermAPI {
   installCli: () => Promise<{ success: boolean; error?: string }>
   dismissCliPrompt: () => Promise<void>
   shouldShowCliPrompt: () => Promise<boolean>
+  getCliStatus: () => Promise<CliStatus>
+  restartCliServer: () => Promise<boolean>
   checkForUpdate: () => Promise<UpdateInfo>
   getLastUpdateCheck: () => Promise<UpdateInfo | null>
   applyUpdate: () => Promise<void>

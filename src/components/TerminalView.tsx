@@ -47,6 +47,7 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
   const cleanupRef = useRef<(() => void) | null>(null)
   const configRef = useRef(config)
   const [isScrolledUp, setIsScrolledUp] = useState(false)
+  const isAtBottomRef = useRef(true)
   configRef.current = config
 
   const initTerminal = useCallback(() => {
@@ -71,26 +72,38 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     // Fit after opening
     requestAnimationFrame(() => {
       fitAddon.fit()
+      terminal.scrollToBottom()
       window.forgeterm.resizeSession(sessionId, terminal.cols, terminal.rows)
     })
 
     // Register data handler via shared listener (1 IPC listener for all terminals)
     ensureSharedDataListener()
-    dataHandlers.set(sessionId, (data) => terminal.write(data))
+    dataHandlers.set(sessionId, (data) => {
+      const wasAtBottom = isAtBottomRef.current
+      terminal.write(data, () => {
+        if (wasAtBottom) {
+          terminal.scrollToBottom()
+        }
+      })
+    })
 
     // Write user input to PTY
     terminal.onData((data) => {
       window.forgeterm.writeToSession(sessionId, data)
     })
 
-    // Handle resize with throttling
+    // Handle resize with throttling - preserve scroll position
     let resizeTimer: ReturnType<typeof setTimeout> | null = null
     const resizeObserver = new ResizeObserver(() => {
       if (resizeTimer) return
       resizeTimer = setTimeout(() => {
         resizeTimer = null
         if (containerRef.current?.offsetParent !== null) {
+          const wasAtBottom = isAtBottomRef.current
           fitAddon.fit()
+          if (wasAtBottom) {
+            terminal.scrollToBottom()
+          }
           window.forgeterm.resizeSession(sessionId, terminal.cols, terminal.rows)
         }
       }, 50)
@@ -126,6 +139,7 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     // Track scroll position to show/hide scroll-to-bottom button
     const scrollDisposable = terminal.onScroll(() => {
       const isAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY
+      isAtBottomRef.current = isAtBottom
       setIsScrolledUp(!isAtBottom)
     })
 
@@ -186,6 +200,7 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     const entry = terminals.get(sessionId)
     if (entry) {
       entry.terminal.scrollToBottom()
+      isAtBottomRef.current = true
       setIsScrolledUp(false)
       entry.terminal.focus()
     }

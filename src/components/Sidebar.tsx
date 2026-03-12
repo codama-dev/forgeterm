@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useSessionStore, type Session } from '../store/sessionStore'
+import type { CliStatus } from '../../shared/types'
 
 interface MenuState {
   sessionId: string
@@ -20,6 +21,7 @@ interface SidebarProps {
   onThemeEditor: () => void
   onHelp: () => void
   onCli: () => void
+  cliStatus: CliStatus
 }
 
 export function Sidebar({
@@ -35,6 +37,7 @@ export function Sidebar({
   onThemeEditor,
   onHelp,
   onCli,
+  cliStatus,
 }: SidebarProps) {
   const { sessions, activeSessionId, setActive, removeSession } = useSessionStore()
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -266,13 +269,20 @@ export function Sidebar({
         <button
           className="sidebar-action-btn"
           onClick={onCli}
-          title="CLI Tool"
-          style={{ background: btnBg, color: sidebarFg }}
+          title={cliStatus === 'not-setup' ? 'CLI Tool (not installed)' : cliStatus === 'connected' ? 'CLI Tool (connected)' : 'CLI Tool (server error)'}
+          style={{ background: btnBg, color: sidebarFg, position: 'relative' }}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="4 17 10 11 4 5" />
             <line x1="12" y1="19" x2="20" y2="19" />
           </svg>
+          <span
+            className="cli-status-dot"
+            style={{
+              background: cliStatus === 'connected' ? '#4ade80' : cliStatus === 'error' ? '#f87171' : '#fb923c',
+              boxShadow: `0 0 4px ${cliStatus === 'connected' ? '#4ade8080' : cliStatus === 'error' ? '#f8717180' : '#fb923c80'}`,
+            }}
+          />
         </button>
       </div>
 

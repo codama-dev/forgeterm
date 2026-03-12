@@ -9,7 +9,7 @@ import { HelpModal } from './components/HelpModal'
 import { CliInstallModal } from './components/CliInstallModal'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useSessionStore } from './store/sessionStore'
-import type { ForgeTermConfig } from '../shared/types'
+import type { ForgeTermConfig, CliStatus } from '../shared/types'
 import type { WindowTheme } from './themes'
 import { generateWindowTheme, adjustAccentBrightness, getTerminalTheme } from './themes'
 import './App.css'
@@ -27,6 +27,7 @@ function App() {
   const [showWelcome, setShowWelcome] = useState(false)
   const [showCliInstall, setShowCliInstall] = useState(false)
   const [showCliPrompt, setShowCliPrompt] = useState(false)
+  const [cliStatus, setCliStatus] = useState<CliStatus>('not-setup')
   const [folderName, setFolderName] = useState('ForgeTerm')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('full')
   const [previewTheme, setPreviewTheme] = useState<WindowTheme | null>(null)
@@ -90,10 +91,23 @@ function App() {
     init()
   }, [createSession])
 
-  // Check if CLI install prompt should show
-  useEffect(() => {
-    window.forgeterm.shouldShowCliPrompt().then(setShowCliPrompt)
+  // Check CLI status on mount and periodically
+  const refreshCliStatus = useCallback(() => {
+    window.forgeterm.getCliStatus().then((status) => {
+      setCliStatus(status)
+      if (status === 'not-setup') {
+        window.forgeterm.shouldShowCliPrompt().then(setShowCliPrompt)
+      } else {
+        setShowCliPrompt(false)
+      }
+    })
   }, [])
+
+  useEffect(() => {
+    refreshCliStatus()
+    const interval = setInterval(refreshCliStatus, 60_000)
+    return () => clearInterval(interval)
+  }, [refreshCliStatus])
 
   // Listen for session exits
   useEffect(() => {
@@ -418,6 +432,7 @@ function App() {
             onThemeEditor={() => setShowThemeEditor(true)}
             onHelp={() => setShowHelp(true)}
             onCli={() => setShowCliInstall(true)}
+            cliStatus={cliStatus}
           />
         )}
         <div className={`terminal-area${sidebarMode === 'hidden' || showCliPrompt ? ' has-floating' : ''}`}>
@@ -448,8 +463,12 @@ function App() {
               <button className="sidebar-action-btn" onClick={() => setShowHelp(true)} title="Help & Shortcuts (?)" style={{ background: buttonBg, color: sidebarFg }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
               </button>
-              <button className="sidebar-action-btn" onClick={() => setShowCliInstall(true)} title="CLI Tool" style={{ background: buttonBg, color: sidebarFg }}>
+              <button className="sidebar-action-btn" onClick={() => setShowCliInstall(true)} title="CLI Tool" style={{ background: buttonBg, color: sidebarFg, position: 'relative' }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>
+                <span className="cli-status-dot" style={{
+                  background: cliStatus === 'connected' ? '#4ade80' : cliStatus === 'error' ? '#f87171' : '#fb923c',
+                  boxShadow: `0 0 4px ${cliStatus === 'connected' ? '#4ade8080' : cliStatus === 'error' ? '#f8717180' : '#fb923c80'}`,
+                }} />
               </button>
             </div>
           )}
@@ -515,11 +534,14 @@ function App() {
       {showCliInstall && (
         <CliInstallModal
           accentColor={accentColor}
+          cliStatus={cliStatus}
           onClose={() => setShowCliInstall(false)}
           onInstalled={() => {
             setShowCliInstall(false)
             setShowCliPrompt(false)
+            refreshCliStatus()
           }}
+          onStatusChange={refreshCliStatus}
         />
       )}
 

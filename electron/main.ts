@@ -1087,6 +1087,23 @@ function setupIpcHandlers() {
     return fs.existsSync('/usr/local/bin/forgeterm')
   })
 
+  ipcMain.handle('cli:get-status', (): string => {
+    const installed = fs.existsSync('/usr/local/bin/forgeterm')
+    if (!installed) return 'not-setup'
+    if (notificationServer.isListening()) return 'connected'
+    return 'error'
+  })
+
+  ipcMain.handle('cli:restart-server', (): boolean => {
+    try {
+      notificationServer.stop()
+      notificationServer.start()
+      return notificationServer.isListening()
+    } catch {
+      return false
+    }
+  })
+
   ipcMain.handle('cli:should-show-prompt', () => {
     if (fs.existsSync('/usr/local/bin/forgeterm')) return false
     try {

@@ -1,9 +1,12 @@
 import { useState, useCallback } from 'react'
+import type { CliStatus } from '../../shared/types'
 
 interface CliInstallModalProps {
   accentColor: string
+  cliStatus: CliStatus
   onClose: () => void
   onInstalled: () => void
+  onStatusChange: () => void
 }
 
 const AI_PROMPT = `When you finish a task, run: forgeterm notify "Done"
@@ -30,10 +33,11 @@ const CLI_COMMANDS = [
   },
 ]
 
-export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstallModalProps) {
+export function CliInstallModal({ accentColor, cliStatus, onClose, onInstalled, onStatusChange }: CliInstallModalProps) {
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [installed, setInstalled] = useState(false)
+  const [installed, setInstalled] = useState(cliStatus !== 'not-setup')
+  const [restarting, setRestarting] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
 
   const handleInstall = useCallback(async () => {
@@ -43,10 +47,11 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
     setInstalling(false)
     if (result.success) {
       setInstalled(true)
+      onStatusChange()
     } else if (result.error !== 'cancelled') {
       setError(result.error || 'Unknown error')
     }
-  }, [])
+  }, [onStatusChange])
 
   const handleDismiss = useCallback(async () => {
     await window.forgeterm.dismissCliPrompt()
@@ -56,6 +61,18 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
   const handleDone = useCallback(() => {
     onInstalled()
   }, [onInstalled])
+
+  const handleRestart = useCallback(async () => {
+    setRestarting(true)
+    setError(null)
+    const success = await window.forgeterm.restartCliServer()
+    setRestarting(false)
+    if (success) {
+      onStatusChange()
+    } else {
+      setError('Failed to restart the CLI server. Try restarting ForgeTerm.')
+    }
+  }, [onStatusChange])
 
   const handleCopy = useCallback(async (text: string, label: string) => {
     try {
@@ -75,8 +92,48 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
     fontSize: 11,
   }
 
+  const showError = cliStatus === 'error' && !installed
+  const showInstalled = installed || cliStatus === 'connected'
+  const showNotSetup = !showInstalled && !showError
+
+  // Header icon and text per state
+  let headerIcon: React.ReactNode
+  let headerTitle: string
+  let headerDesc: React.ReactNode
+
+  if (showError) {
+    headerIcon = (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#f87171" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+    )
+    headerTitle = 'CLI Server Error'
+    headerDesc = <>The notification server is not responding. CLI commands won't work until it's restarted.</>
+  } else if (showInstalled) {
+    headerIcon = (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    )
+    headerTitle = 'CLI Connected'
+    headerDesc = <>You can use <code style={{ ...codeStyle, color: '#4ade80' }}>forgeterm</code> from any terminal</>
+  } else {
+    headerIcon = (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="4 17 10 11 4 5" />
+        <line x1="12" y1="19" x2="20" y2="19" />
+      </svg>
+    )
+    headerTitle = 'Command Line Tool'
+    headerDesc = <>Control ForgeTerm from your terminal with the <code style={codeStyle}>forgeterm</code> command</>
+  }
+
+  const headerIconBg = showError ? '#f8717120' : showInstalled ? '#4ade8020' : accentColor + '20'
+
   return (
-    <div className="modal-overlay" onClick={installed ? handleDone : onClose}>
+    <div className="modal-overlay" onClick={showInstalled ? handleDone : onClose}>
       <div className="modal cli-install-modal" onClick={(e) => e.stopPropagation()}>
         <div style={{ padding: '24px 24px 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
@@ -84,40 +141,99 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
               width: 36,
               height: 36,
               borderRadius: 8,
-              background: (installed ? '#4ade80' : accentColor) + '20',
+              background: headerIconBg,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               flexShrink: 0,
             }}>
-              {installed ? (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="20 6 9 17 4 12" />
-                </svg>
-              ) : (
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={accentColor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="4 17 10 11 4 5" />
-                  <line x1="12" y1="19" x2="20" y2="19" />
-                </svg>
-              )}
+              {headerIcon}
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#e2e8f0' }}>
-                {installed ? 'CLI Installed' : 'Command Line Tool'}
+                {headerTitle}
               </h3>
               <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
-                {installed ? (
-                  <>You can now use <code style={{ ...codeStyle, color: '#4ade80' }}>forgeterm</code> from any terminal</>
-                ) : (
-                  <>Control ForgeTerm from your terminal with the <code style={codeStyle}>forgeterm</code> command</>
-                )}
+                {headerDesc}
               </p>
             </div>
           </div>
         </div>
 
         <div style={{ padding: '0 24px 20px' }}>
-          {installed ? (
+          {showError && (
+            <>
+              {/* Error diagnostics */}
+              <div style={{
+                background: 'rgba(248,113,113,0.06)',
+                border: '1px solid rgba(248,113,113,0.15)',
+                borderRadius: 8,
+                padding: 16,
+                marginBottom: 16,
+              }}>
+                <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>
+                  <p style={{ margin: '0 0 8px', color: '#e2e8f0', fontWeight: 500 }}>What happened?</p>
+                  <p style={{ margin: '0 0 8px' }}>
+                    The internal server that receives CLI commands (like <code style={codeStyle}>forgeterm notify</code>) has stopped responding.
+                    This can happen if the socket file was removed or there was an unexpected error.
+                  </p>
+                  <p style={{ margin: 0 }}>
+                    Click <strong style={{ color: '#e2e8f0' }}>Restart Server</strong> to fix it. If the issue persists, try quitting and reopening ForgeTerm.
+                  </p>
+                </div>
+              </div>
+
+              {error && (
+                <div style={{
+                  background: 'rgba(248,113,113,0.1)',
+                  border: '1px solid rgba(248,113,113,0.2)',
+                  borderRadius: 6,
+                  padding: '8px 12px',
+                  fontSize: 11,
+                  color: '#f87171',
+                  marginBottom: 12,
+                }}>
+                  {error}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button
+                  onClick={onClose}
+                  style={{
+                    background: 'none',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: 6,
+                    padding: '7px 14px',
+                    color: '#94a3b8',
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleRestart}
+                  disabled={restarting}
+                  style={{
+                    background: '#f87171',
+                    border: 'none',
+                    borderRadius: 6,
+                    padding: '7px 18px',
+                    color: '#fff',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: restarting ? 'default' : 'pointer',
+                    opacity: restarting ? 0.7 : 1,
+                  }}
+                >
+                  {restarting ? 'Restarting...' : 'Restart Server'}
+                </button>
+              </div>
+            </>
+          )}
+
+          {showInstalled && (
             <>
               {/* Commands reference */}
               <div style={{
@@ -240,7 +356,9 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
                 </button>
               </div>
             </>
-          ) : (
+          )}
+
+          {showNotSetup && (
             <>
               {/* Commands preview */}
               <div style={{

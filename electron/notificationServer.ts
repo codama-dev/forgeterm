@@ -134,6 +134,10 @@ export class NotificationServer {
     n.show()
   }
 
+  isListening(): boolean {
+    return this.server?.listening ?? false
+  }
+
   stop() {
     this.server?.close()
     try {
