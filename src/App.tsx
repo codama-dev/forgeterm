@@ -363,17 +363,38 @@ function App() {
           {emoji && <span className="titlebar-emoji">{emoji}</span>}
           {displayName}
         </span>
-        <button
-          className="open-project-btn"
-          onClick={() => setShowProjectSwitcher(true)}
-          title="Open Project (Cmd+P)"
-          style={{ background: accentColor }}
-        >
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M2 4.5V13a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 14 13V6.5A1.5 1.5 0 0 0 12.5 5H8L6.5 3H3.5A1.5 1.5 0 0 0 2 4.5z" />
-          </svg>
-          Open
-        </button>
+        <div className="titlebar-actions">
+          <button
+            className="titlebar-action-btn"
+            onClick={() => window.forgeterm.revealInFinder()}
+            title="Reveal in Finder"
+            style={{ background: 'rgba(255,255,255,0.1)', color: titlebarFg }}
+          >
+            {/* macOS Finder icon */}
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="1.5" y="1" width="13" height="14" rx="2" />
+              <line x1="1.5" y1="5" x2="14.5" y2="5" />
+              <circle cx="5.5" cy="8.5" r="0.75" fill="currentColor" stroke="none" />
+              <circle cx="10.5" cy="8.5" r="0.75" fill="currentColor" stroke="none" />
+              <path d="M5.5 11.5c0 0 1.5 1.5 5 0" />
+            </svg>
+          </button>
+          <button
+            className="open-project-btn"
+            onClick={() => setShowProjectSwitcher(true)}
+            title="Switch Project (Cmd+P)"
+            style={{ background: accentColor }}
+          >
+            {/* Grid/switch icon */}
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="1.5" y="1.5" width="5" height="5" rx="1" />
+              <rect x="9.5" y="1.5" width="5" height="5" rx="1" />
+              <rect x="1.5" y="9.5" width="5" height="5" rx="1" />
+              <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
+            </svg>
+            Open
+          </button>
+        </div>
       </div>
       <UpdateBanner accentColor={accentColor} />
       <div className="main-layout">
@@ -396,6 +417,7 @@ function App() {
             onProjectSettings={() => setShowProjectSettings(true)}
             onThemeEditor={() => setShowThemeEditor(true)}
             onHelp={() => setShowHelp(true)}
+            onCli={() => setShowCliInstall(true)}
           />
         )}
         <div className={`terminal-area${sidebarMode === 'hidden' || showCliPrompt ? ' has-floating' : ''}`}>
@@ -425,6 +447,9 @@ function App() {
               </button>
               <button className="sidebar-action-btn" onClick={() => setShowHelp(true)} title="Help & Shortcuts (?)" style={{ background: buttonBg, color: sidebarFg }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+              </button>
+              <button className="sidebar-action-btn" onClick={() => setShowCliInstall(true)} title="CLI Tool" style={{ background: buttonBg, color: sidebarFg }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" /></svg>
               </button>
             </div>
           )}

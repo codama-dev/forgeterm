@@ -176,9 +176,12 @@ export interface ForgeTermAPI {
   checkForUpdate: () => Promise<UpdateInfo>
   getLastUpdateCheck: () => Promise<UpdateInfo | null>
   applyUpdate: () => Promise<void>
+  downloadUpdate: () => Promise<void>
+  onDownloadProgress: (callback: (progress: { progress: number; receivedBytes: number; totalBytes: number }) => void) => () => void
   installUpdate: () => Promise<void>
   getUpdateCommand: () => Promise<string | null>
   onUpdateAvailable: (callback: (info: UpdateInfo) => void) => () => void
+  onUpdateCheckResult: (callback: (info: UpdateInfo) => void) => () => void
   getFavoriteThemes: () => Promise<FavoriteTheme[]>
   saveFavoriteTheme: (theme: FavoriteTheme) => Promise<void>
   deleteFavoriteTheme: (name: string) => Promise<void>

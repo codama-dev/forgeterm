@@ -4,14 +4,24 @@ const { execSync } = require('child_process')
 const path = require('path')
 const net = require('net')
 const os = require('os')
+const fs = require('fs')
 
 const subcommand = process.argv[2]
 
 if (subcommand === 'notify') {
   handleNotify()
+} else if (subcommand === 'open') {
+  handleOpen()
+} else if (subcommand === 'list') {
+  handleList()
+} else if (subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
+  printHelp()
+} else if (subcommand === '--version' || subcommand === '-v') {
+  const pkg = require('../package.json')
+  console.log(`forgeterm ${pkg.version}`)
 } else {
   // Default: launch Electron with folder path
-  const folder = process.argv[2] || '.'
+  const folder = subcommand || '.'
   const absPath = path.resolve(folder)
 
   const electronPath = path.join(__dirname, '..', 'node_modules', '.bin', 'electron')
@@ -24,7 +34,54 @@ if (subcommand === 'notify') {
   }
 }
 
-function handleNotify() {
+// --- Socket helpers ---
+
+function getSocketPath() {
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library/Application Support/ForgeTerm/forgeterm.sock')
+  }
+  return path.join(os.homedir(), '.config/ForgeTerm/forgeterm.sock')
+}
+
+function sendCommand(payload) {
+  return new Promise((resolve, reject) => {
+    const socketPath = process.env.FORGETERM_SOCKET || getSocketPath()
+    const client = net.createConnection(socketPath, () => {
+      client.write(JSON.stringify(payload) + '\n')
+    })
+
+    let response = ''
+    client.on('data', (data) => {
+      response += data.toString()
+      if (response.includes('\n')) {
+        try {
+          resolve(JSON.parse(response.trim()))
+        } catch {
+          resolve({ ok: false, error: 'Invalid response' })
+        }
+        client.end()
+      }
+    })
+
+    client.on('error', (err) => {
+      if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') {
+        reject(new Error('Could not connect to ForgeTerm. Is it running?'))
+      } else {
+        reject(new Error(err.message))
+      }
+    })
+
+    const timeout = setTimeout(() => {
+      client.destroy()
+      reject(new Error('Timed out waiting for ForgeTerm response'))
+    }, 5000)
+    timeout.unref()
+  })
+}
+
+// --- Commands ---
+
+async function handleNotify() {
   const args = process.argv.slice(3)
 
   let message = ''
@@ -49,62 +106,148 @@ function handleNotify() {
     process.exit(1)
   }
 
-  // Read context from environment (set automatically by ForgeTerm PTY)
   const projectPath = process.env.FORGETERM_PROJECT_PATH
   const sessionId = process.env.FORGETERM_SESSION_ID
   const sessionName = process.env.FORGETERM_SESSION_NAME
 
-  // Determine socket path: env var first, then default
-  let socketPath = process.env.FORGETERM_SOCKET
-  if (!socketPath) {
-    // Default: ~/Library/Application Support/ForgeTerm/forgeterm.sock (macOS)
-    if (process.platform === 'darwin') {
-      socketPath = path.join(os.homedir(), 'Library/Application Support/ForgeTerm/forgeterm.sock')
-    } else {
-      socketPath = path.join(os.homedir(), '.config/ForgeTerm/forgeterm.sock')
+  try {
+    const result = await sendCommand({
+      command: 'notify',
+      message,
+      title,
+      sound,
+      projectPath,
+      sessionId,
+      sessionName,
+    })
+    if (!result.ok) {
+      console.error('Notification failed:', result.error)
+      process.exit(1)
     }
+  } catch (err) {
+    console.error(err.message)
+    process.exit(1)
+  }
+}
+
+async function handleOpen() {
+  const args = process.argv.slice(3)
+
+  if (args[0] === '--help' || args[0] === '-h') {
+    console.log(`
+Usage: forgeterm open <path>
+
+Open a directory in ForgeTerm. If the project is already open, it focuses
+the existing window. Otherwise it creates a new window and adds the project
+to your recent projects list.
+
+Examples:
+  forgeterm open .
+  forgeterm open ~/projects/my-app
+  forgeterm open /absolute/path/to/project
+`.trim())
+    process.exit(0)
   }
 
-  const payload = { message, title, sound, projectPath, sessionId, sessionName }
+  const folder = args[0]
+  if (!folder) {
+    console.error('Usage: forgeterm open <path>')
+    process.exit(1)
+  }
 
-  const client = net.createConnection(socketPath, () => {
-    client.write(JSON.stringify(payload) + '\n')
-  })
+  const absPath = path.resolve(folder)
+  if (!fs.existsSync(absPath)) {
+    console.error(`Path does not exist: ${absPath}`)
+    process.exit(1)
+  }
 
-  let response = ''
-  client.on('data', (data) => {
-    response += data.toString()
-    if (response.includes('\n')) {
-      try {
-        const result = JSON.parse(response.trim())
-        if (!result.ok) {
-          console.error('Notification failed:', result.error)
-          process.exit(1)
-        }
-      } catch {
-        // ignore parse errors
-      }
-      client.end()
-      process.exit(0)
+  try {
+    const result = await sendCommand({ command: 'open', path: absPath })
+    if (!result.ok) {
+      console.error('Failed to open project:', result.error)
+      process.exit(1)
     }
-  })
+    console.log(`Opened ${absPath}`)
+  } catch (err) {
+    console.error(err.message)
+    process.exit(1)
+  }
+}
 
-  client.on('error', (err) => {
-    if (err.code === 'ENOENT' || err.code === 'ECONNREFUSED') {
-      console.error('Could not connect to ForgeTerm. Is it running?')
+async function handleList() {
+  const args = process.argv.slice(3)
+
+  if (args[0] === '--help' || args[0] === '-h') {
+    console.log(`
+Usage: forgeterm list [options]
+
+List your recent ForgeTerm projects.
+
+Options:
+  --json    Output as JSON
+  -h, --help  Show this help
+`.trim())
+    process.exit(0)
+  }
+
+  const jsonOutput = args.includes('--json')
+
+  try {
+    const result = await sendCommand({ command: 'list' })
+    if (!result.ok) {
+      console.error('Failed to list projects:', result.error)
+      process.exit(1)
+    }
+
+    const projects = result.data || []
+    if (jsonOutput) {
+      console.log(JSON.stringify(projects, null, 2))
+    } else if (projects.length === 0) {
+      console.log('No recent projects.')
     } else {
-      console.error('Error:', err.message)
+      for (const p of projects) {
+        const workspace = p.workspace ? ` [${p.workspace}]` : ''
+        console.log(`  ${p.name}${workspace}`)
+        console.log(`    ${p.path}`)
+      }
     }
+  } catch (err) {
+    console.error(err.message)
     process.exit(1)
-  })
+  }
+}
 
-  // Timeout after 5s
-  const timeout = setTimeout(() => {
-    client.destroy()
-    console.error('Timed out waiting for ForgeTerm response')
-    process.exit(1)
-  }, 5000)
-  timeout.unref()
+// --- Help ---
+
+function printHelp() {
+  const pkg = require('../package.json')
+  console.log(`
+forgeterm ${pkg.version} - Terminal emulator for multi-project workflows
+
+Usage: forgeterm <command> [options]
+
+Commands:
+  forgeterm [path]            Launch ForgeTerm (optionally in a directory)
+  forgeterm open <path>       Open a project in the running ForgeTerm app
+  forgeterm list [--json]     List recent projects
+  forgeterm notify "message"  Send a native notification
+  forgeterm help              Show this help
+
+Notification options:
+  --title "title"   Custom notification title
+  --no-sound        Suppress notification sound
+
+Examples:
+  forgeterm .                     Open current directory
+  forgeterm open ~/projects/app   Open a project (adds to recent list)
+  forgeterm list                  Show recent projects
+  forgeterm list --json           Output recent projects as JSON
+  forgeterm notify "Build done"   Send a notification
+  pnpm build && forgeterm notify "Build done"
+
+Tip: Add this to your project's CLAUDE.md or AI instructions:
+  When you finish a task, run: forgeterm notify "Done"
+`.trim())
 }
 
 function printNotifyHelp() {
@@ -124,8 +267,5 @@ Examples:
   forgeterm notify "Build complete"
   forgeterm notify "Tests passed" --title "CI"
   forgeterm notify "Deploy done" --no-sound
-
-Tip: Add this to your project's CLAUDE.md:
-  When you finish a task, run: forgeterm notify "Done"
 `.trim())
 }

@@ -2,7 +2,7 @@
 # ForgeTerm CLI - lightweight command-line tool
 # Installed to /usr/local/bin/forgeterm by ForgeTerm app
 
-FORGETERM_VERSION="CLI 1.0"
+FORGETERM_VERSION="CLI 1.1"
 
 # Determine socket path
 if [ -n "$FORGETERM_SOCKET" ]; then
@@ -19,7 +19,8 @@ Usage: forgeterm <command> [options]
 
 Commands:
   notify "message"    Send a native notification via ForgeTerm
-  open [path]         Open a folder in ForgeTerm
+  open [path]         Open a project in the running ForgeTerm app
+  list [--json]       List recent projects
   help                Show this help
 
 Run 'forgeterm <command> --help' for command-specific help.
@@ -50,6 +51,56 @@ Examples:
   # Add to your project's CLAUDE.md so AI agents notify you:
   #   When you finish a task, run: forgeterm notify "Done"
 USAGE
+}
+
+# Minimal JSON string escaping
+json_string() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\t'/\\t}"
+  echo "\"$s\""
+}
+
+# Send JSON payload to the ForgeTerm socket, return response
+send_to_socket() {
+  local json="$1"
+
+  if [ ! -S "$SOCKET_PATH" ]; then
+    echo "Could not connect to ForgeTerm. Is it running?" >&2
+    return 1
+  fi
+
+  local response
+  if command -v nc &>/dev/null; then
+    response=$(echo "$json" | nc -U -w 5 "$SOCKET_PATH" 2>/dev/null)
+  elif command -v socat &>/dev/null; then
+    response=$(echo "$json" | socat - UNIX-CONNECT:"$SOCKET_PATH" 2>/dev/null)
+  else
+    if command -v python3 &>/dev/null; then
+      response=$(python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(5)
+s.connect('$SOCKET_PATH')
+s.sendall(b'$json\n')
+data = s.recv(65536)
+s.close()
+print(data.decode())
+" 2>/dev/null)
+    else
+      echo "No suitable socket client found (need nc, socat, or python3)" >&2
+      return 1
+    fi
+  fi
+
+  if [ -z "$response" ]; then
+    echo "No response from ForgeTerm (timed out)" >&2
+    return 1
+  fi
+
+  echo "$response"
 }
 
 cmd_notify() {
@@ -86,14 +137,10 @@ cmd_notify() {
     exit 1
   fi
 
-  if [ ! -S "$SOCKET_PATH" ]; then
-    echo "Could not connect to ForgeTerm. Is it running?" >&2
-    exit 1
-  fi
-
   # Build JSON payload
   local json="{"
-  json+="\"message\":$(json_string "$message")"
+  json+="\"command\":\"notify\""
+  json+=",\"message\":$(json_string "$message")"
   [ -n "$title" ] && json+=",\"title\":$(json_string "$title")"
   [ "$sound" = "false" ] && json+=",\"sound\":false"
   [ -n "$FORGETERM_PROJECT_PATH" ] && json+=",\"projectPath\":$(json_string "$FORGETERM_PROJECT_PATH")"
@@ -101,36 +148,11 @@ cmd_notify() {
   [ -n "$FORGETERM_SESSION_NAME" ] && json+=",\"sessionName\":$(json_string "$FORGETERM_SESSION_NAME")"
   json+="}"
 
-  # Send via Unix socket (use nc or socat)
   local response
-  if command -v nc &>/dev/null; then
-    response=$(echo "$json" | nc -U -w 5 "$SOCKET_PATH" 2>/dev/null)
-  elif command -v socat &>/dev/null; then
-    response=$(echo "$json" | socat - UNIX-CONNECT:"$SOCKET_PATH" 2>/dev/null)
-  else
-    # Fallback: use bash /dev/tcp won't work for Unix sockets, try python
-    if command -v python3 &>/dev/null; then
-      response=$(python3 -c "
-import socket, sys, json
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(5)
-s.connect('$SOCKET_PATH')
-s.sendall(b'$json\n')
-data = s.recv(4096)
-s.close()
-print(data.decode())
-" 2>/dev/null)
-    else
-      echo "No suitable socket client found (need nc, socat, or python3)" >&2
-      exit 1
-    fi
-  fi
+  response=$(send_to_socket "$json") || exit 1
 
   if echo "$response" | grep -q '"ok":true'; then
     exit 0
-  elif [ -z "$response" ]; then
-    echo "No response from ForgeTerm (timed out)" >&2
-    exit 1
   else
     echo "Notification failed: $response" >&2
     exit 1
@@ -138,6 +160,22 @@ print(data.decode())
 }
 
 cmd_open() {
+  if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat <<'USAGE'
+Usage: forgeterm open <path>
+
+Open a directory in ForgeTerm. If the project is already open, it focuses
+the existing window. Otherwise it creates a new window and adds the project
+to your recent projects list.
+
+Examples:
+  forgeterm open .
+  forgeterm open ~/projects/my-app
+  forgeterm open /absolute/path/to/project
+USAGE
+    exit 0
+  fi
+
   local target="${1:-.}"
   local abs_path
   abs_path=$(cd "$target" 2>/dev/null && pwd)
@@ -146,22 +184,80 @@ cmd_open() {
     exit 1
   fi
 
-  if [ "$(uname)" = "Darwin" ]; then
-    open -a ForgeTerm "$abs_path" 2>/dev/null || open "$abs_path" --args "$abs_path"
+  local json="{\"command\":\"open\",\"path\":$(json_string "$abs_path")}"
+  local response
+  response=$(send_to_socket "$json") || exit 1
+
+  if echo "$response" | grep -q '"ok":true'; then
+    echo "Opened $abs_path"
   else
-    echo "Opening via CLI is only supported on macOS currently" >&2
+    echo "Failed to open project: $response" >&2
     exit 1
   fi
 }
 
-# Minimal JSON string escaping
-json_string() {
-  local s="$1"
-  s="${s//\\/\\\\}"
-  s="${s//\"/\\\"}"
-  s="${s//$'\n'/\\n}"
-  s="${s//$'\t'/\\t}"
-  echo "\"$s\""
+cmd_list() {
+  local json_output=false
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --json)
+        json_output=true
+        ;;
+      -h|--help)
+        cat <<'USAGE'
+Usage: forgeterm list [options]
+
+List your recent ForgeTerm projects.
+
+Options:
+  --json      Output as JSON
+  -h, --help  Show this help
+USAGE
+        exit 0
+        ;;
+    esac
+    shift
+  done
+
+  local json='{"command":"list"}'
+  local response
+  response=$(send_to_socket "$json") || exit 1
+
+  if ! echo "$response" | grep -q '"ok":true'; then
+    echo "Failed to list projects: $response" >&2
+    exit 1
+  fi
+
+  if [ "$json_output" = true ]; then
+    # Extract data array from response
+    if command -v python3 &>/dev/null; then
+      echo "$response" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+print(json.dumps(data.get('data', []), indent=2))
+"
+    else
+      echo "$response"
+    fi
+  else
+    if command -v python3 &>/dev/null; then
+      echo "$response" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+projects = data.get('data', [])
+if not projects:
+    print('No recent projects.')
+else:
+    for p in projects:
+        ws = f' [{p[\"workspace\"]}]' if p.get('workspace') else ''
+        print(f'  {p[\"name\"]}{ws}')
+        print(f'    {p[\"path\"]}')
+"
+    else
+      echo "$response"
+    fi
+  fi
 }
 
 # Main dispatch
@@ -173,6 +269,10 @@ case "${1:-}" in
   open)
     shift
     cmd_open "$@"
+    ;;
+  list)
+    shift
+    cmd_list "$@"
     ;;
   help|--help|-h)
     usage

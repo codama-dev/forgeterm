@@ -11,6 +11,13 @@ export function getSocketPath(): string {
 interface NotificationServerOptions {
   findWindowForProject: (projectPath: string) => BrowserWindow | null
   getProjectDisplayName: (projectPath: string) => string | null
+  focusOrCreateWindow: (projectPath: string) => void
+  loadRecentProjects: () => Array<{ path: string; name: string; lastOpened?: number; workspace?: string }>
+}
+
+interface CliCommand {
+  command: string
+  [key: string]: unknown
 }
 
 export class NotificationServer {
@@ -40,9 +47,9 @@ export class NotificationServer {
         for (const line of lines) {
           if (!line.trim()) continue
           try {
-            const payload = JSON.parse(line) as ForgeTermNotification
-            this.showNotification(payload)
-            conn.write(JSON.stringify({ ok: true }) + '\n')
+            const payload = JSON.parse(line)
+            const result = this.handleCommand(payload)
+            conn.write(JSON.stringify(result) + '\n')
           } catch {
             conn.write(JSON.stringify({ ok: false, error: 'Invalid JSON' }) + '\n')
           }
@@ -55,6 +62,48 @@ export class NotificationServer {
     })
 
     this.server.listen(socketPath)
+  }
+
+  private handleCommand(payload: CliCommand | ForgeTermNotification): { ok: boolean; error?: string; data?: unknown } {
+    // New-style command with explicit `command` field
+    if ('command' in payload && typeof payload.command === 'string') {
+      switch (payload.command) {
+        case 'notify':
+          this.showNotification(payload as unknown as ForgeTermNotification)
+          return { ok: true }
+
+        case 'open': {
+          const projectPath = payload.path as string
+          if (!projectPath) return { ok: false, error: 'Missing path' }
+          try {
+            const resolved = path.resolve(projectPath)
+            if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+              return { ok: false, error: `Not a directory: ${resolved}` }
+            }
+            this.options.focusOrCreateWindow(resolved)
+            return { ok: true }
+          } catch (err: unknown) {
+            return { ok: false, error: (err as Error).message }
+          }
+        }
+
+        case 'list': {
+          const projects = this.options.loadRecentProjects()
+          return { ok: true, data: projects }
+        }
+
+        default:
+          return { ok: false, error: `Unknown command: ${payload.command}` }
+      }
+    }
+
+    // Legacy: treat as notification (backwards compat with old CLI)
+    if ('message' in payload) {
+      this.showNotification(payload as ForgeTermNotification)
+      return { ok: true }
+    }
+
+    return { ok: false, error: 'Unknown payload format' }
   }
 
   private showNotification(notif: ForgeTermNotification) {

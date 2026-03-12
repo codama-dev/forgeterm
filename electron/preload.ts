@@ -187,6 +187,16 @@ const api: ForgeTermAPI = {
   applyUpdate: () =>
     ipcRenderer.invoke('update:apply'),
 
+  downloadUpdate: () =>
+    ipcRenderer.invoke('update:download'),
+
+  onDownloadProgress: (callback: (progress: { progress: number; receivedBytes: number; totalBytes: number }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { progress: number; receivedBytes: number; totalBytes: number }) =>
+      callback(data)
+    ipcRenderer.on('update:download-progress', handler)
+    return () => { ipcRenderer.removeListener('update:download-progress', handler) }
+  },
+
   installUpdate: () =>
     ipcRenderer.invoke('update:install'),
 
@@ -197,6 +207,12 @@ const api: ForgeTermAPI = {
     const handler = (_event: Electron.IpcRendererEvent, info: UpdateInfo) => callback(info)
     ipcRenderer.on('update:available', handler)
     return () => { ipcRenderer.removeListener('update:available', handler) }
+  },
+
+  onUpdateCheckResult: (callback: (info: UpdateInfo) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, info: UpdateInfo) => callback(info)
+    ipcRenderer.on('update:check-result', handler)
+    return () => { ipcRenderer.removeListener('update:check-result', handler) }
   },
 
   getFavoriteThemes: () =>

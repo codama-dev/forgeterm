@@ -7,13 +7,34 @@ interface CliInstallModalProps {
 }
 
 const AI_PROMPT = `When you finish a task, run: forgeterm notify "Done"
-This sends a native notification via ForgeTerm. It automatically knows which project and session you're in. No config needed.`
+This sends a native notification via ForgeTerm. It automatically knows which project and session you're in. No config needed.
+
+For long-running tasks (builds, deploys, test suites), notify on both success and failure:
+  command && forgeterm notify "Success" || forgeterm notify "Failed"`
+
+const CLI_COMMANDS = [
+  {
+    cmd: 'forgeterm open <path>',
+    desc: 'Open a project in ForgeTerm (adds to recent list)',
+    example: 'forgeterm open ~/projects/my-app',
+  },
+  {
+    cmd: 'forgeterm list',
+    desc: 'List your recent projects',
+    example: 'forgeterm list --json',
+  },
+  {
+    cmd: 'forgeterm notify "message"',
+    desc: 'Send a native notification',
+    example: 'pnpm build && forgeterm notify "Build done"',
+  },
+]
 
 export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstallModalProps) {
   const [installing, setInstalling] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [installed, setInstalled] = useState(false)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<string | null>(null)
 
   const handleInstall = useCallback(async () => {
     setInstalling(true)
@@ -36,15 +57,23 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
     onInstalled()
   }, [onInstalled])
 
-  const handleCopy = useCallback(async () => {
+  const handleCopy = useCallback(async (text: string, label: string) => {
     try {
-      await navigator.clipboard.writeText(AI_PROMPT)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
+      await navigator.clipboard.writeText(text)
+      setCopied(label)
+      setTimeout(() => setCopied(null), 2000)
     } catch {
       // Fallback
     }
   }, [])
+
+  const codeStyle: React.CSSProperties = {
+    color: accentColor,
+    background: 'rgba(255,255,255,0.06)',
+    padding: '1px 5px',
+    borderRadius: 3,
+    fontSize: 11,
+  }
 
   return (
     <div className="modal-overlay" onClick={installed ? handleDone : onClose}>
@@ -74,13 +103,13 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
             </div>
             <div>
               <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#e2e8f0' }}>
-                {installed ? 'CLI Installed' : 'Install Command Line Tool'}
+                {installed ? 'CLI Installed' : 'Command Line Tool'}
               </h3>
               <p style={{ margin: '2px 0 0', fontSize: 12, color: '#64748b' }}>
                 {installed ? (
-                  <>You can now use <code style={{ color: '#4ade80', background: 'rgba(255,255,255,0.06)', padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>forgeterm</code> from any terminal</>
+                  <>You can now use <code style={{ ...codeStyle, color: '#4ade80' }}>forgeterm</code> from any terminal</>
                 ) : (
-                  <>Adds the <code style={{ color: accentColor, background: 'rgba(255,255,255,0.06)', padding: '1px 5px', borderRadius: 3, fontSize: 11 }}>forgeterm</code> command to your PATH</>
+                  <>Control ForgeTerm from your terminal with the <code style={codeStyle}>forgeterm</code> command</>
                 )}
               </p>
             </div>
@@ -90,6 +119,51 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
         <div style={{ padding: '0 24px 20px' }}>
           {installed ? (
             <>
+              {/* Commands reference */}
+              <div style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: 8,
+                padding: 16,
+                marginBottom: 16,
+              }}>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                  <strong style={{ color: '#e2e8f0' }}>Commands</strong>
+                </div>
+                {CLI_COMMANDS.map((c) => (
+                  <div
+                    key={c.cmd}
+                    onClick={() => handleCopy(c.example, c.cmd)}
+                    style={{
+                      background: '#0f172a',
+                      borderRadius: 6,
+                      padding: '8px 12px',
+                      marginBottom: 8,
+                      cursor: 'pointer',
+                      border: copied === c.cmd ? '1px solid #4ade8055' : '1px solid transparent',
+                      position: 'relative',
+                    }}
+                  >
+                    <div style={{ fontFamily: 'monospace', fontSize: 11, color: '#e2e8f0' }}>
+                      {c.cmd}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                      {c.desc}
+                    </div>
+                    <span style={{
+                      position: 'absolute',
+                      top: 6,
+                      right: 8,
+                      fontSize: 9,
+                      color: copied === c.cmd ? '#4ade80' : '#475569',
+                    }}>
+                      {copied === c.cmd ? 'Copied!' : 'Click to copy'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {/* AI agent prompt */}
               <div style={{
                 background: 'rgba(255,255,255,0.03)',
                 border: '1px solid rgba(255,255,255,0.06)',
@@ -100,10 +174,10 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
                 <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>
                   <p style={{ margin: '0 0 10px' }}>
                     <strong style={{ color: '#e2e8f0' }}>Make AI agents notify you</strong><br />
-                    Copy this prompt and add it to your AI tool's instructions (e.g. CLAUDE.md):
+                    Copy this and add it to your AI tool's instructions (e.g. CLAUDE.md):
                   </p>
                   <div
-                    onClick={handleCopy}
+                    onClick={() => handleCopy(AI_PROMPT, 'ai')}
                     style={{
                       background: '#0f172a',
                       borderRadius: 6,
@@ -113,7 +187,7 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
                       color: '#e2e8f0',
                       lineHeight: 1.7,
                       cursor: 'pointer',
-                      border: copied ? '1px solid #4ade8055' : '1px solid transparent',
+                      border: copied === 'ai' ? '1px solid #4ade8055' : '1px solid transparent',
                       position: 'relative',
                       whiteSpace: 'pre-wrap',
                     }}
@@ -124,11 +198,11 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
                       top: 6,
                       right: 8,
                       fontSize: 10,
-                      color: copied ? '#4ade80' : '#64748b',
+                      color: copied === 'ai' ? '#4ade80' : '#64748b',
                       background: '#0f172a',
                       padding: '0 4px',
                     }}>
-                      {copied ? 'Copied!' : 'Click to copy'}
+                      {copied === 'ai' ? 'Copied!' : 'Click to copy'}
                     </span>
                   </div>
                 </div>
@@ -136,18 +210,18 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button
-                  onClick={handleCopy}
+                  onClick={() => handleCopy(AI_PROMPT, 'ai')}
                   style={{
                     background: 'none',
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: 6,
                     padding: '7px 14px',
-                    color: copied ? '#4ade80' : '#94a3b8',
+                    color: copied === 'ai' ? '#4ade80' : '#94a3b8',
                     fontSize: 12,
                     cursor: 'pointer',
                   }}
                 >
-                  {copied ? 'Copied!' : 'Copy Prompt'}
+                  {copied === 'ai' ? 'Copied!' : 'Copy AI Prompt'}
                 </button>
                 <button
                   onClick={handleDone}
@@ -168,6 +242,7 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
             </>
           ) : (
             <>
+              {/* Commands preview */}
               <div style={{
                 background: 'rgba(255,255,255,0.03)',
                 border: '1px solid rgba(255,255,255,0.06)',
@@ -177,8 +252,7 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
               }}>
                 <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>
                   <p style={{ margin: '0 0 12px' }}>
-                    <strong style={{ color: '#e2e8f0' }}>Get notified when tasks finish</strong><br />
-                    Chain with any command to get a native notification:
+                    <strong style={{ color: '#e2e8f0' }}>What you can do</strong>
                   </p>
                   <div style={{
                     background: '#0f172a',
@@ -187,17 +261,19 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
                     fontFamily: 'monospace',
                     fontSize: 11,
                     color: '#94a3b8',
-                    marginBottom: 12,
-                    lineHeight: 1.7,
+                    lineHeight: 1.8,
                   }}>
-                    <div><span style={{ color: '#64748b'}}># After a long build</span></div>
+                    <div><span style={{ color: '#64748b'}}># Open a project</span></div>
+                    <div><span style={{ color: accentColor }}>forgeterm open</span> ~/projects/my-app</div>
+                    <div style={{ marginTop: 4 }}><span style={{ color: '#64748b'}}># List your recent projects</span></div>
+                    <div><span style={{ color: accentColor }}>forgeterm list</span></div>
+                    <div style={{ marginTop: 4 }}><span style={{ color: '#64748b'}}># Get notified when tasks finish</span></div>
                     <div>pnpm build && <span style={{ color: accentColor }}>forgeterm notify</span> "Build done"</div>
-                    <div style={{ marginTop: 6 }}><span style={{ color: '#64748b'}}># Make AI agents notify you</span></div>
+                    <div style={{ marginTop: 4 }}><span style={{ color: '#64748b'}}># Make AI agents notify you</span></div>
                     <div><span style={{ color: '#64748b'}}># Add to CLAUDE.md:</span> When done, run: <span style={{ color: accentColor }}>forgeterm notify</span> "Done"</div>
                   </div>
-                  <p style={{ margin: 0, color: '#64748b', fontSize: 11 }}>
-                    Clicking a notification focuses the right project window and session.
-                    Works automatically inside ForgeTerm sessions - no config needed.
+                  <p style={{ margin: '12px 0 0', color: '#64748b', fontSize: 11 }}>
+                    Install the CLI to use these commands from any terminal.
                   </p>
                 </div>
               </div>
@@ -260,7 +336,7 @@ export function CliInstallModal({ accentColor, onClose, onInstalled }: CliInstal
                     opacity: installing ? 0.7 : 1,
                   }}
                 >
-                  {installing ? 'Installing...' : 'Install'}
+                  {installing ? 'Installing...' : 'Install CLI'}
                 </button>
               </div>
             </>

@@ -1,5 +1,5 @@
-import { app, net } from 'electron'
-import { writeFileSync, chmodSync } from 'fs'
+import { app, net, BrowserWindow } from 'electron'
+import { writeFileSync, chmodSync, createWriteStream, unlinkSync } from 'fs'
 import { join } from 'path'
 import { spawn } from 'child_process'
 import { tmpdir } from 'os'
@@ -181,6 +181,62 @@ export class UpdateManager {
     return this.provider.apply()
   }
 
+  private downloadedDmgPath: string | null = null
+
+  /** Download DMG to temp, sending progress events to all windows. Returns local path. */
+  downloadDmg(dmgUrl: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const dmgPath = join(tmpdir(), 'ForgeTerm-update.dmg')
+      const request = net.request(dmgUrl)
+      request.setHeader('User-Agent', `ForgeTerm/${app.getVersion()}`)
+      request.on('response', (response) => {
+        // Follow redirects (GitHub asset URLs redirect)
+        if (response.statusCode && response.statusCode >= 300 && response.statusCode < 400) {
+          const location = response.headers['location']
+          const redirectUrl = Array.isArray(location) ? location[0] : location
+          if (redirectUrl) {
+            this.downloadDmg(redirectUrl).then(resolve, reject)
+            return
+          }
+        }
+        if (response.statusCode !== 200) {
+          reject(new Error(`Download failed: HTTP ${response.statusCode}`))
+          return
+        }
+        const contentLength = response.headers['content-length']
+        const totalBytes = contentLength
+          ? parseInt(Array.isArray(contentLength) ? contentLength[0] : contentLength, 10)
+          : 0
+        let receivedBytes = 0
+        const file = createWriteStream(dmgPath)
+
+        response.on('data', (chunk) => {
+          receivedBytes += chunk.length
+          file.write(chunk)
+          const progress = totalBytes > 0 ? Math.round((receivedBytes / totalBytes) * 100) : -1
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) {
+              win.webContents.send('update:download-progress', { progress, receivedBytes, totalBytes })
+            }
+          }
+        })
+        response.on('end', () => {
+          file.end(() => {
+            this.downloadedDmgPath = dmgPath
+            resolve(dmgPath)
+          })
+        })
+        response.on('error', (err: Error) => {
+          file.close()
+          try { unlinkSync(dmgPath) } catch {}
+          reject(err)
+        })
+      })
+      request.on('error', reject)
+      request.end()
+    })
+  }
+
   /** Build a shell command string that downloads, mounts, copies, and relaunches. */
   buildUpdateCommand(dmgUrl: string): string {
     const appPath = '/Applications/ForgeTerm.app'
@@ -204,11 +260,23 @@ export class UpdateManager {
     ].join(' && ')
   }
 
-  /** Spawn a detached update script, then quit the app. */
+  /** Spawn a detached update script, then quit the app. Uses pre-downloaded DMG if available. */
   installViaScript(dmgUrl: string): void {
     const appPath = '/Applications/ForgeTerm.app'
     const pid = process.pid
     const scriptPath = join(tmpdir(), `forgeterm-update-${Date.now()}.sh`)
+    const preDownloaded = this.downloadedDmgPath
+
+    const downloadStep = preDownloaded
+      ? `DMG_PATH="${preDownloaded}"\necho "Using pre-downloaded DMG..."`
+      : `DMG_PATH="/tmp/ForgeTerm-update.dmg"
+echo "Downloading ForgeTerm update..."
+curl -L -o "$DMG_PATH" "${dmgUrl}"
+if [ $? -ne 0 ]; then
+  echo "Download failed."
+  rm -f "$DMG_PATH"
+  exit 1
+fi`
 
     const script = `#!/bin/bash
 # ForgeTerm self-update script
@@ -216,15 +284,7 @@ export class UpdateManager {
 echo "Waiting for ForgeTerm to quit..."
 while kill -0 ${pid} 2>/dev/null; do sleep 0.5; done
 
-DMG_PATH="/tmp/ForgeTerm-update.dmg"
-
-echo "Downloading ForgeTerm update..."
-curl -L -o "$DMG_PATH" "${dmgUrl}"
-if [ $? -ne 0 ]; then
-  echo "Download failed."
-  rm -f "$DMG_PATH"
-  exit 1
-fi
+${downloadStep}
 
 echo "Mounting DMG..."
 MOUNT_DIR=$(hdiutil attach "$DMG_PATH" -nobrowse -noverify | grep "/Volumes/" | awk -F'\\t' '{print $NF}')

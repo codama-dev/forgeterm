@@ -93,18 +93,25 @@ Get notified when long-running commands finish - builds, deploys, test suites, A
 **Usage:**
 
 ```bash
-# Basic notification
+# Open a project (adds to recent list, focuses if already open)
+forgeterm open ~/projects/my-app
+forgeterm open .
+
+# List your recent projects
+forgeterm list
+forgeterm list --json
+
+# Send a notification
 forgeterm notify "Build complete"
-
-# Custom title
 forgeterm notify "All 47 tests passed" --title "Test Suite"
-
-# Silent (no sound)
 forgeterm notify "Deploy done" --no-sound
 
 # Chain with any command
 pnpm build && forgeterm notify "Build done" || forgeterm notify "Build failed"
 npm test && forgeterm notify "Tests passed"
+
+# Show help
+forgeterm help
 ```
 
 **With AI agents (Claude Code, etc.):**
@@ -112,13 +119,14 @@ npm test && forgeterm notify "Tests passed"
 Add this to your project's `CLAUDE.md`:
 ```
 When you finish a task, run: forgeterm notify "Done"
+This sends a native notification via ForgeTerm. It automatically knows which project and session you're in. No config needed.
 ```
 
 The agent will send a notification when it completes work, so you can switch to other tasks without watching the terminal.
 
 **How it works:**
 
-ForgeTerm runs a local socket server. The `forgeterm notify` command sends a message to this socket. When run inside a ForgeTerm session, it automatically knows which project and session it belongs to (via environment variables), so clicking the notification focuses the correct window and session tab. No network, no external services - everything stays local.
+ForgeTerm runs a local socket server. The `forgeterm` CLI communicates with the running app through this socket. When run inside a ForgeTerm session, commands automatically know which project and session they belong to (via environment variables), so clicking a notification focuses the correct window and session tab. No network, no external services - everything stays local.
 
 ### Cross-Platform
 

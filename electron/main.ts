@@ -39,6 +39,10 @@ const notificationServer = new NotificationServer({
     const config = loadConfig(projectPath)
     return config?.projectName || path.basename(projectPath)
   },
+  focusOrCreateWindow: (projectPath: string) => {
+    focusOrCreateWindow(projectPath)
+  },
+  loadRecentProjects,
 })
 
 // --- Recent projects ---
@@ -1142,6 +1146,12 @@ function setupIpcHandlers() {
     await updateManager.applyUpdate()
   })
 
+  ipcMain.handle('update:download', async () => {
+    const info = updateManager.getLastCheck()
+    if (!info?.dmgUrl) throw new Error('No DMG URL available')
+    await updateManager.downloadDmg(info.dmgUrl)
+  })
+
   ipcMain.handle('update:install', () => {
     const info = updateManager.getLastCheck()
     if (!info?.dmgUrl) throw new Error('No DMG URL available')
@@ -1217,6 +1227,19 @@ function buildMenu() {
       submenu: [
         { role: 'about' },
         { type: 'separator' },
+        {
+          label: 'Check for Updates...',
+          click: async () => {
+            const info = await updateManager.checkNow()
+            const win = BrowserWindow.getFocusedWindow()
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('update:check-result', {
+                ...info,
+                supportsAutoInstall: updateManager.supportsAutoInstall,
+              })
+            }
+          },
+        },
         {
           label: 'Install Command Line Tool...',
           click: async () => {
@@ -1392,6 +1415,12 @@ app.on('open-file', (event, filePath) => {
 })
 
 app.whenReady().then(() => {
+  app.setAboutPanelOptions({
+    applicationName: 'ForgeTerm',
+    copyright: 'Copyright © 2026 ForgeTerm',
+    credits: 'Built by Codama\nhttps://codama.dev',
+    website: 'https://codama.dev',
+  })
   buildMenu()
   setupIpcHandlers()
   notificationServer.start()

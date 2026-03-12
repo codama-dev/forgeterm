@@ -10,7 +10,10 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
   const [dismissed, setDismissed] = useState(false)
   const [showMenu, setShowMenu] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [downloading, setDownloading] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState(0)
   const [installing, setInstalling] = useState(false)
+  const [upToDate, setUpToDate] = useState(false)
 
   useEffect(() => {
     window.forgeterm.getLastUpdateCheck().then((info) => {
@@ -20,7 +23,30 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
       if (info.available) {
         setUpdate(info)
         setDismissed(false)
+        setUpToDate(false)
       }
+    })
+  }, [])
+
+  // Listen for manual check results (from menu "Check for Updates...")
+  useEffect(() => {
+    return window.forgeterm.onUpdateCheckResult((info) => {
+      if (info.available) {
+        setUpdate(info)
+        setDismissed(false)
+        setUpToDate(false)
+      } else {
+        setUpdate(null)
+        setUpToDate(true)
+        setTimeout(() => setUpToDate(false), 5000)
+      }
+    })
+  }, [])
+
+  // Listen for download progress
+  useEffect(() => {
+    return window.forgeterm.onDownloadProgress(({ progress }) => {
+      if (progress >= 0) setDownloadProgress(progress)
     })
   }, [])
 
@@ -32,9 +58,17 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
     return () => document.removeEventListener('click', handler)
   }, [showMenu])
 
-  const handleInstall = useCallback(() => {
-    setInstalling(true)
-    window.forgeterm.installUpdate()
+  const handleInstall = useCallback(async () => {
+    setDownloading(true)
+    setDownloadProgress(0)
+    try {
+      await window.forgeterm.downloadUpdate()
+      setDownloading(false)
+      setInstalling(true)
+      window.forgeterm.installUpdate()
+    } catch {
+      setDownloading(false)
+    }
   }, [])
 
   const handleCopyCommand = useCallback(async () => {
@@ -54,9 +88,50 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
     setShowMenu(false)
   }, [update])
 
+  // "You're up to date" banner
+  if (upToDate) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '5px 14px',
+          background: 'rgba(74, 222, 128, 0.06)',
+          borderBottom: '1px solid rgba(74, 222, 128, 0.12)',
+          fontSize: 12,
+          flexShrink: 0,
+        }}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="20 6 9 17 4 12" />
+        </svg>
+        <span style={{ color: '#4ade80', flex: 1 }}>
+          You're up to date! Running the latest version.
+        </span>
+        <button
+          onClick={() => setUpToDate(false)}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'rgba(74, 222, 128, 0.5)',
+            cursor: 'pointer',
+            fontSize: 14,
+            padding: '0 2px',
+            lineHeight: 1,
+          }}
+          title="Dismiss"
+        >
+          x
+        </button>
+      </div>
+    )
+  }
+
   if (!update?.available || dismissed) return null
 
   const hasDmg = !!update.dmgUrl
+  const busy = downloading || installing
 
   return (
     <div
@@ -77,10 +152,40 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
         <span style={{ opacity: 0.5 }}>(current: v{update.currentVersion})</span>
       </span>
 
-      {installing ? (
-        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
-          Updating... app will restart
-        </span>
+      {busy ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {downloading && (
+            <>
+              <div
+                style={{
+                  width: 80,
+                  height: 4,
+                  background: 'rgba(255,255,255,0.1)',
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                }}
+              >
+                <div
+                  style={{
+                    width: `${downloadProgress}%`,
+                    height: '100%',
+                    background: accentColor,
+                    borderRadius: 2,
+                    transition: 'width 0.2s ease',
+                  }}
+                />
+              </div>
+              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
+                Downloading {downloadProgress}%
+              </span>
+            </>
+          )}
+          {installing && (
+            <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
+              Installing... app will restart
+            </span>
+          )}
+        </div>
       ) : (
         <div style={{ position: 'relative', display: 'flex', gap: 4, alignItems: 'center' }}>
           {/* Primary button */}
@@ -185,21 +290,23 @@ export function UpdateBanner({ accentColor }: UpdateBannerProps) {
         </div>
       )}
 
-      <button
-        onClick={() => setDismissed(true)}
-        style={{
-          background: 'none',
-          border: 'none',
-          color: 'rgba(255,255,255,0.35)',
-          cursor: 'pointer',
-          fontSize: 14,
-          padding: '0 2px',
-          lineHeight: 1,
-        }}
-        title="Dismiss"
-      >
-        x
-      </button>
+      {!busy && (
+        <button
+          onClick={() => setDismissed(true)}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'rgba(255,255,255,0.35)',
+            cursor: 'pointer',
+            fontSize: 14,
+            padding: '0 2px',
+            lineHeight: 1,
+          }}
+          title="Dismiss"
+        >
+          x
+        </button>
+      )}
     </div>
   )
 }

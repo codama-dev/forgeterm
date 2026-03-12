@@ -49,3 +49,6 @@ Per-project `.forgeterm.json` files configure theme colors, font, window chrome,
 
 When you finish a task, run: forgeterm notify "Done"
 This sends a native notification via ForgeTerm. It automatically knows which project and session you're in. No config needed.
+
+For long-running tasks (builds, deploys, test suites), notify on both success and failure:
+  command && forgeterm notify "Success" || forgeterm notify "Failed"
