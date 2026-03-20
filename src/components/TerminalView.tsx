@@ -1,8 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import type { ForgeTermConfig } from '../../shared/types'
+import { useSessionStore } from '../store/sessionStore'
 
 interface TerminalViewProps {
   sessionId: string
@@ -10,7 +13,17 @@ interface TerminalViewProps {
   config: ForgeTermConfig | null
 }
 
+interface DropMenuState {
+  x: number
+  y: number
+  files: string[]
+}
+
 const terminals = new Map<string, { terminal: Terminal; fitAddon: FitAddon }>()
+
+// Activity tracking: after 5s of silence, transition from 'working' to 'unread'
+const ACTIVITY_TIMEOUT_MS = 5000
+const activityTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
 // Single shared data listener - dispatches to the right terminal by session ID
 const dataHandlers = new Map<string, (data: string) => void>()
@@ -41,13 +54,38 @@ function getThemeOptions(config: ForgeTermConfig | null) {
   }
 }
 
+function quotePath(p: string): string {
+  return `"${p}"`
+}
+
+async function executeDrop(sessionId: string, action: 'path' | 'content' | 'copy', files: string[]) {
+  for (const filePath of files) {
+    if (action === 'path') {
+      window.forgeterm.writeToSession(sessionId, quotePath(filePath) + ' ')
+    } else if (action === 'content') {
+      const result = await window.forgeterm.readFileContent(filePath)
+      if (result.isBinary) {
+        window.forgeterm.writeToSession(sessionId, quotePath(filePath) + ' ')
+      } else {
+        window.forgeterm.writeToSession(sessionId, result.content)
+      }
+    } else if (action === 'copy') {
+      const result = await window.forgeterm.copyFileToProject(filePath)
+      window.forgeterm.writeToSession(sessionId, quotePath(result.relativePath) + ' ')
+    }
+  }
+}
+
 export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const initializedRef = useRef(false)
   const cleanupRef = useRef<(() => void) | null>(null)
   const configRef = useRef(config)
   const [isScrolledUp, setIsScrolledUp] = useState(false)
+  const [isDraggingOver, setIsDraggingOver] = useState(false)
+  const [dropMenu, setDropMenu] = useState<DropMenuState | null>(null)
   const isAtBottomRef = useRef(true)
+  const dragCountRef = useRef(0)
   configRef.current = config
 
   const initTerminal = useCallback(() => {
@@ -67,7 +105,25 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
 
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
+
+    // Clickable URLs - opens in default browser
+    const webLinksAddon = new WebLinksAddon((_event, uri) => {
+      window.forgeterm.openExternal(uri)
+    })
+    terminal.loadAddon(webLinksAddon)
+
     terminal.open(containerRef.current)
+
+    // GPU-accelerated rendering (falls back to default canvas if WebGL unavailable)
+    try {
+      const webglAddon = new WebglAddon()
+      webglAddon.onContextLoss(() => {
+        webglAddon.dispose()
+      })
+      terminal.loadAddon(webglAddon)
+    } catch {
+      // WebGL not available, default renderer is fine
+    }
 
     // Fit after opening
     requestAnimationFrame(() => {
@@ -79,12 +135,32 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     // Register data handler via shared listener (1 IPC listener for all terminals)
     ensureSharedDataListener()
     dataHandlers.set(sessionId, (data) => {
-      const wasAtBottom = isAtBottomRef.current
       terminal.write(data, () => {
-        if (wasAtBottom) {
+        // Check the CURRENT value of isAtBottomRef, not a captured snapshot.
+        // terminal.write() queues data for processing in an animation frame,
+        // so the user may have scrolled up between when write() was called
+        // and when this callback fires. Checking the ref here avoids the race
+        // condition that yanks the user back to the bottom.
+        if (isAtBottomRef.current) {
           terminal.scrollToBottom()
         }
       })
+
+      // Activity tracking: mark non-active sessions as working
+      const store = useSessionStore.getState()
+      if (store.activeSessionId !== sessionId) {
+        store.markSessionWorking(sessionId)
+        const existing = activityTimers.get(sessionId)
+        if (existing) clearTimeout(existing)
+        activityTimers.set(sessionId, setTimeout(() => {
+          const s = useSessionStore.getState()
+          const session = s.sessions.find((sess) => sess.id === sessionId)
+          if (session?.activityStatus === 'working' && s.activeSessionId !== sessionId) {
+            s.setActivityStatus(sessionId, 'unread')
+          }
+          activityTimers.delete(sessionId)
+        }, ACTIVITY_TIMEOUT_MS))
+      }
     })
 
     // Write user input to PTY
@@ -99,9 +175,8 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       resizeTimer = setTimeout(() => {
         resizeTimer = null
         if (containerRef.current?.offsetParent !== null) {
-          const wasAtBottom = isAtBottomRef.current
           fitAddon.fit()
-          if (wasAtBottom) {
+          if (isAtBottomRef.current) {
             terminal.scrollToBottom()
           }
           window.forgeterm.resizeSession(sessionId, terminal.cols, terminal.rows)
@@ -110,30 +185,60 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     })
     resizeObserver.observe(containerRef.current)
 
-    // Drag-and-drop: insert file paths into terminal
+    // Drag-and-drop
     const container = containerRef.current
+    const handleDragEnter = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCountRef.current++
+      if (dragCountRef.current === 1) {
+        setIsDraggingOver(true)
+      }
+    }
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
     }
+    const handleDragLeave = (e: DragEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      dragCountRef.current--
+      if (dragCountRef.current <= 0) {
+        dragCountRef.current = 0
+        setIsDraggingOver(false)
+      }
+    }
     const handleDrop = (e: DragEvent) => {
       e.preventDefault()
       e.stopPropagation()
+      dragCountRef.current = 0
+      setIsDraggingOver(false)
+
       const files = e.dataTransfer?.files
-      if (files && files.length > 0) {
-        const paths = Array.from(files)
-          .map((f) => {
-            const p = (f as any).path as string
-            return p?.includes(' ') ? `'${p}'` : p
-          })
-          .filter(Boolean)
-          .join(' ')
-        if (paths) {
-          window.forgeterm.writeToSession(sessionId, paths)
-        }
+      if (!files || files.length === 0) return
+
+      const paths = Array.from(files)
+        .map((f) => (f as any).path as string)
+        .filter(Boolean)
+      if (paths.length === 0) return
+
+      const behavior = configRef.current?.dragDropBehavior ?? 'ask'
+      if (behavior !== 'ask') {
+        executeDrop(sessionId, behavior, paths)
+        return
       }
+
+      // Show the action menu at the drop position
+      const rect = container.getBoundingClientRect()
+      setDropMenu({
+        x: Math.min(e.clientX - rect.left, rect.width - 200),
+        y: Math.min(e.clientY - rect.top, rect.height - 120),
+        files: paths,
+      })
     }
+    container.addEventListener('dragenter', handleDragEnter)
     container.addEventListener('dragover', handleDragOver)
+    container.addEventListener('dragleave', handleDragLeave)
     container.addEventListener('drop', handleDrop)
 
     // Track scroll position to show/hide scroll-to-bottom button
@@ -146,7 +251,9 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     terminals.set(sessionId, { terminal, fitAddon })
 
     cleanupRef.current = () => {
+      container.removeEventListener('dragenter', handleDragEnter)
       container.removeEventListener('dragover', handleDragOver)
+      container.removeEventListener('dragleave', handleDragLeave)
       container.removeEventListener('drop', handleDrop)
       scrollDisposable.dispose()
       dataHandlers.delete(sessionId)
@@ -154,6 +261,9 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       resizeObserver.disconnect()
       terminal.dispose()
       terminals.delete(sessionId)
+      const actTimer = activityTimers.get(sessionId)
+      if (actTimer) clearTimeout(actTimer)
+      activityTimers.delete(sessionId)
     }
   }, [sessionId])
 
@@ -169,12 +279,19 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
   // Fit and scroll to bottom when becoming active
   useEffect(() => {
     if (active) {
+      // Clear activity state when user views this session
+      useSessionStore.getState().setActivityStatus(sessionId, 'idle')
+      const actTimer = activityTimers.get(sessionId)
+      if (actTimer) clearTimeout(actTimer)
+      activityTimers.delete(sessionId)
+
       const entry = terminals.get(sessionId)
       if (entry) {
         requestAnimationFrame(() => {
           entry.fitAddon.fit()
           window.forgeterm.resizeSession(sessionId, entry.terminal.cols, entry.terminal.rows)
           entry.terminal.scrollToBottom()
+          isAtBottomRef.current = true
           setIsScrolledUp(false)
           entry.terminal.focus()
         })
@@ -196,6 +313,16 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     }
   }, [config, sessionId])
 
+  // Dismiss drop menu on Escape
+  useEffect(() => {
+    if (!dropMenu) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDropMenu(null)
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [dropMenu])
+
   const handleScrollToBottom = useCallback(() => {
     const entry = terminals.get(sessionId)
     if (entry) {
@@ -214,9 +341,55 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     }
   }, [sessionId])
 
+  const handleDropAction = useCallback((action: 'path' | 'content' | 'copy') => {
+    if (!dropMenu) return
+    executeDrop(sessionId, action, dropMenu.files)
+    setDropMenu(null)
+    terminals.get(sessionId)?.terminal.focus()
+  }, [sessionId, dropMenu])
+
   return (
     <div className="terminal-wrapper" style={{ display: active ? 'block' : 'none' }}>
       <div ref={containerRef} className="terminal-container" />
+      {active && isDraggingOver && (
+        <div className="terminal-drag-overlay">
+          <span className="terminal-drag-overlay-text">Drop file</span>
+        </div>
+      )}
+      {active && dropMenu && (
+        <>
+          <div
+            style={{ position: 'absolute', inset: 0, zIndex: 99 }}
+            onClick={() => setDropMenu(null)}
+          />
+          <div
+            className="drop-action-menu"
+            style={{ left: dropMenu.x, top: dropMenu.y }}
+          >
+            <button onClick={() => handleDropAction('path')}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 13V3h5l3 3v7" />
+                <path d="M9 3v3h3" />
+              </svg>
+              Paste path
+            </button>
+            <button onClick={() => handleDropAction('content')}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 7h6M5 9h4M5 11h5" />
+                <rect x="2" y="2" width="12" height="12" rx="2" />
+              </svg>
+              Paste content
+            </button>
+            <button onClick={() => handleDropAction('copy')}>
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 2v8M5 7l3 3 3-3" />
+                <path d="M2 11v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2" />
+              </svg>
+              Copy to project
+            </button>
+          </div>
+        </>
+      )}
       {active && isScrolledUp && (
         <div className="terminal-scroll-controls">
           <button
@@ -229,12 +402,13 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
             </svg>
           </button>
           <button
-            className="terminal-scroll-btn"
+            className="terminal-scroll-btn terminal-stick-btn"
             onClick={handleScrollToBottom}
-            title="Scroll to bottom"
+            title="Stick to bottom"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M7 11.5L2.5 6.5M7 11.5L11.5 6.5M7 11.5V2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M7 10L3.5 6.5M7 10L10.5 6.5M7 10V2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              <line x1="3" y1="12.5" x2="11" y2="12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
           </button>
         </div>
@@ -261,5 +435,12 @@ export function scrollTerminalToBottom(sessionId: string) {
   const entry = terminals.get(sessionId)
   if (entry) {
     entry.terminal.scrollToBottom()
+  }
+}
+
+export function selectAllTerminal(sessionId: string) {
+  const entry = terminals.get(sessionId)
+  if (entry) {
+    entry.terminal.selectAll()
   }
 }

@@ -1,5 +1,5 @@
 import { ipcRenderer, contextBridge } from 'electron'
-import type { ForgeTermAPI, CliStatus, UpdateInfo } from '../shared/types'
+import type { ForgeTermAPI, CliStatus, UpdateInfo, RemoteStatus } from '../shared/types'
 
 const api: ForgeTermAPI = {
   createSession: (name: string, command?: string, idle?: boolean) =>
@@ -184,6 +184,15 @@ const api: ForgeTermAPI = {
   restartCliServer: () =>
     ipcRenderer.invoke('cli:restart-server'),
 
+  isFinderIntegrationInstalled: () =>
+    ipcRenderer.invoke('finder:is-installed'),
+
+  installFinderIntegration: () =>
+    ipcRenderer.invoke('finder:install'),
+
+  uninstallFinderIntegration: () =>
+    ipcRenderer.invoke('finder:uninstall'),
+
   checkForUpdate: () =>
     ipcRenderer.invoke('update:check'),
 
@@ -239,6 +248,39 @@ const api: ForgeTermAPI = {
     ipcRenderer.on('notification:focus-session', handler)
     return () => { ipcRenderer.removeListener('notification:focus-session', handler) }
   },
+
+  readFileContent: (filePath: string) =>
+    ipcRenderer.invoke('file:read-content', filePath),
+
+  copyFileToProject: (filePath: string) =>
+    ipcRenderer.invoke('file:copy-to-project', filePath),
+
+  renameWorkspace: (oldName: string, newName: string) =>
+    ipcRenderer.invoke('workspaces:rename', oldName, newName),
+
+  updateWorkspace: (name: string, updates: Record<string, unknown>) =>
+    ipcRenderer.invoke('workspaces:update', name, JSON.parse(JSON.stringify(updates))),
+
+  addProjectToWorkspace: (workspaceName: string, projectPath: string) =>
+    ipcRenderer.invoke('workspaces:add-project', workspaceName, projectPath),
+
+  startRemoteAccess: () =>
+    ipcRenderer.invoke('remote:start'),
+
+  stopRemoteAccess: () =>
+    ipcRenderer.invoke('remote:stop'),
+
+  getRemoteStatus: () =>
+    ipcRenderer.invoke('remote:status'),
+
+  onRemoteStatusChanged: (callback: (status: RemoteStatus) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, status: RemoteStatus) => callback(status)
+    ipcRenderer.on('remote:status-changed', handler)
+    return () => { ipcRenderer.removeListener('remote:status-changed', handler) }
+  },
+
+  reportSessionStatuses: (statuses) =>
+    ipcRenderer.send('activity:report', statuses),
 }
 
 contextBridge.exposeInMainWorld('forgeterm', api)

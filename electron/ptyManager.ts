@@ -20,11 +20,16 @@ interface CreateSessionOptions {
   onExit: (id: string, exitCode: number) => void
 }
 
+export type DataListener = (id: string, data: string) => void
+export type ExitListener = (id: string, exitCode: number) => void
+
 export class PtyManager {
   private sessions = new Map<string, PtySession>()
   private nextId = 1
   private dataCallbacks = new Map<string, (id: string, data: string) => void>()
   private exitCallbacks = new Map<string, (id: string, exitCode: number) => void>()
+  private extraDataListeners = new Map<string, Set<DataListener>>()
+  private extraExitListeners = new Map<string, Set<ExitListener>>()
   private socketPath?: string
 
   createSession(options: CreateSessionOptions): string {
@@ -59,6 +64,7 @@ export class PtyManager {
 
     proc.onData((data) => {
       this.dataCallbacks.get(id)?.(id, data)
+      this.extraDataListeners.get(id)?.forEach(cb => cb(id, data))
     })
 
     proc.onExit(({ exitCode }) => {
@@ -68,6 +74,7 @@ export class PtyManager {
         session.pty = null
       }
       this.exitCallbacks.get(id)?.(id, exitCode ?? 0)
+      this.extraExitListeners.get(id)?.forEach(cb => cb(id, exitCode ?? 0))
     })
 
     // If there's a command, write it to stdin after the shell initializes
@@ -104,6 +111,11 @@ export class PtyManager {
     this.sessions.get(id)?.pty?.write(data)
   }
 
+  getFirstSessionId(): string | null {
+    const first = this.sessions.keys().next()
+    return first.done ? null : first.value
+  }
+
   resize(id: string, cols: number, rows: number) {
     try {
       this.sessions.get(id)?.pty?.resize(cols, rows)
@@ -126,6 +138,8 @@ export class PtyManager {
     this.sessions.delete(id)
     this.dataCallbacks.delete(id)
     this.exitCallbacks.delete(id)
+    this.extraDataListeners.delete(id)
+    this.extraExitListeners.delete(id)
   }
 
   restart(id: string, onData: (id: string, data: string) => void, onExit: (id: string, exitCode: number) => void): string {
@@ -153,6 +167,7 @@ export class PtyManager {
 
     proc.onData((data) => {
       this.dataCallbacks.get(id)?.(id, data)
+      this.extraDataListeners.get(id)?.forEach(cb => cb(id, data))
     })
 
     proc.onExit(({ exitCode }) => {
@@ -162,6 +177,7 @@ export class PtyManager {
         s.pty = null
       }
       this.exitCallbacks.get(id)?.(id, exitCode ?? 0)
+      this.extraExitListeners.get(id)?.forEach(cb => cb(id, exitCode ?? 0))
     })
 
     // If there's a command, write it to stdin after the shell initializes
@@ -195,5 +211,32 @@ export class PtyManager {
     this.sessions.clear()
     this.dataCallbacks.clear()
     this.exitCallbacks.clear()
+    this.extraDataListeners.clear()
+    this.extraExitListeners.clear()
+  }
+
+  addDataListener(id: string, listener: DataListener): () => void {
+    if (!this.extraDataListeners.has(id)) {
+      this.extraDataListeners.set(id, new Set())
+    }
+    this.extraDataListeners.get(id)!.add(listener)
+    return () => { this.extraDataListeners.get(id)?.delete(listener) }
+  }
+
+  addExitListener(id: string, listener: ExitListener): () => void {
+    if (!this.extraExitListeners.has(id)) {
+      this.extraExitListeners.set(id, new Set())
+    }
+    this.extraExitListeners.get(id)!.add(listener)
+    return () => { this.extraExitListeners.get(id)?.delete(listener) }
+  }
+
+  getAllSessions(): Array<{ id: string; name: string; command?: string; running: boolean }> {
+    return Array.from(this.sessions.values()).map(s => ({
+      id: s.id,
+      name: s.name,
+      command: s.command,
+      running: s.running,
+    }))
   }
 }

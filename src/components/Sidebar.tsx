@@ -21,7 +21,9 @@ interface SidebarProps {
   onThemeEditor: () => void
   onHelp: () => void
   onCli: () => void
+  onRemote: () => void
   cliStatus: CliStatus
+  remoteRunning: boolean
 }
 
 export function Sidebar({
@@ -37,7 +39,9 @@ export function Sidebar({
   onThemeEditor,
   onHelp,
   onCli,
+  onRemote,
   cliStatus,
+  remoteRunning,
 }: SidebarProps) {
   const { sessions, activeSessionId, setActive, removeSession } = useSessionStore()
   const [menu, setMenu] = useState<MenuState | null>(null)
@@ -158,7 +162,10 @@ export function Sidebar({
             ) : (
               <>
                 <span
-                  className={`session-indicator ${session.running ? 'running' : 'stopped'}`}
+                  className={`session-indicator ${session.running ? 'running' : 'stopped'}${
+                    session.activityStatus === 'working' ? ' activity-working' :
+                    session.activityStatus === 'unread' ? ' activity-unread' : ''
+                  }`}
                   style={session.running ? { color: accentColor } : undefined}
                 />
                 {!compact && (
@@ -283,6 +290,30 @@ export function Sidebar({
               boxShadow: `0 0 4px ${cliStatus === 'connected' ? '#4ade8080' : cliStatus === 'error' ? '#f8717180' : '#fb923c80'}`,
             }}
           />
+        </button>
+        <button
+          className="sidebar-action-btn"
+          onClick={onRemote}
+          title={remoteRunning ? 'Remote Access (active)' : 'Remote Access'}
+          style={{ background: btnBg, color: sidebarFg, position: 'relative' }}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="3" />
+            <line x1="12" y1="2" x2="12" y2="5" />
+            <line x1="12" y1="19" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="5" y2="12" />
+            <line x1="19" y1="12" x2="22" y2="12" />
+          </svg>
+          {remoteRunning && (
+            <span
+              className="cli-status-dot"
+              style={{
+                background: '#4ade80',
+                boxShadow: '0 0 4px #4ade8080',
+              }}
+            />
+          )}
         </button>
       </div>
 

@@ -1,20 +1,24 @@
 import { create } from 'zustand'
+import type { SessionActivityStatus } from '../../shared/types'
 
 export interface Session {
   id: string
   name: string
   command?: string
   running: boolean
+  activityStatus: SessionActivityStatus
 }
 
 interface SessionStore {
   sessions: Session[]
   activeSessionId: string | null
-  addSession: (session: Session) => void
+  addSession: (session: Omit<Session, 'activityStatus'>) => void
   removeSession: (id: string) => void
   setActive: (id: string) => void
   setRunning: (id: string, running: boolean) => void
   renameSession: (id: string, name: string) => void
+  setActivityStatus: (id: string, status: SessionActivityStatus) => void
+  markSessionWorking: (id: string) => void
 }
 
 export const useSessionStore = create<SessionStore>((set) => ({
@@ -23,7 +27,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   addSession: (session) =>
     set((state) => ({
-      sessions: [...state.sessions, session],
+      sessions: [...state.sessions, { ...session, activityStatus: 'idle' }],
       activeSessionId: state.activeSessionId ?? session.id,
     })),
 
@@ -37,7 +41,13 @@ export const useSessionStore = create<SessionStore>((set) => ({
       return { sessions, activeSessionId }
     }),
 
-  setActive: (id) => set({ activeSessionId: id }),
+  setActive: (id) =>
+    set((state) => ({
+      activeSessionId: id,
+      sessions: state.sessions.map((s) =>
+        s.id === id ? { ...s, activityStatus: 'idle' as const } : s,
+      ),
+    })),
 
   setRunning: (id, running) =>
     set((state) => ({
@@ -52,4 +62,22 @@ export const useSessionStore = create<SessionStore>((set) => ({
         s.id === id ? { ...s, name } : s,
       ),
     })),
+
+  setActivityStatus: (id, status) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === id ? { ...s, activityStatus: status } : s,
+      ),
+    })),
+
+  markSessionWorking: (id) =>
+    set((state) => {
+      const session = state.sessions.find((s) => s.id === id)
+      if (!session || session.activityStatus === 'working') return state
+      return {
+        sessions: state.sessions.map((s) =>
+          s.id === id ? { ...s, activityStatus: 'working' as const } : s,
+        ),
+      }
+    }),
 }))

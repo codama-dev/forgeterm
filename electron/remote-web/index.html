@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>ForgeTerm Remote</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" integrity="sha384-tStR1zLfWgsiXCF3IgfB3lBa8KmBe/lG287CL9WCeKgQYcp1bjb4/+mwN6oti4Co" crossorigin="anonymous" referrerpolicy="no-referrer">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Login screen -->
+    <div id="login-view" class="view">
+      <div class="login-container">
+        <div class="login-logo">ForgeTerm</div>
+        <div class="login-subtitle">Remote Access</div>
+        <input type="password" id="token-input" placeholder="Enter access token" autocomplete="off" autofocus>
+        <button id="login-btn" class="btn-primary">Connect</button>
+        <div id="login-error" class="error-text hidden"></div>
+      </div>
+    </div>
+
+    <!-- Windows list -->
+    <div id="windows-view" class="view hidden">
+      <header class="top-bar">
+        <div class="top-bar-title">ForgeTerm Remote</div>
+        <button id="refresh-btn" class="icon-btn" title="Refresh">&#x21bb;</button>
+      </header>
+      <div id="windows-list" class="card-list"></div>
+      <div id="empty-state" class="empty-state hidden">
+        <div class="empty-icon">&#x1f4bb;</div>
+        <div>No open windows</div>
+      </div>
+    </div>
+
+    <!-- Sessions list -->
+    <div id="sessions-view" class="view hidden">
+      <header class="top-bar">
+        <button id="back-to-windows" class="icon-btn">&larr;</button>
+        <div class="top-bar-title" id="sessions-title">Sessions</div>
+        <button id="sessions-refresh-btn" class="icon-btn" title="Refresh">&#x21bb;</button>
+      </header>
+      <div id="sessions-list" class="card-list"></div>
+    </div>
+
+    <!-- Terminal view -->
+    <div id="terminal-view" class="view hidden">
+      <header class="top-bar terminal-bar">
+        <button id="back-to-sessions" class="icon-btn">&larr;</button>
+        <div class="top-bar-title" id="terminal-title">Terminal</div>
+        <div class="terminal-actions">
+          <button id="terminal-restart-btn" class="icon-btn" title="Restart">&#x21bb;</button>
+          <button id="terminal-kill-btn" class="icon-btn danger" title="Kill">&#x2715;</button>
+        </div>
+      </header>
+      <div id="terminal-container"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js" integrity="sha384-J4qzUjBl1FxyLsl/kQPQIOeINsmp17OHYXDOMpMxlKX53ZfYsL+aWHpgArvOuof9" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js" integrity="sha384-XGqKrV8Jrukp1NITJbOEHwg01tNkuXr6uB6YEj69ebpYU3v7FvoGgEg23C1Gcehk" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.12.0/lib/addon-web-links.min.js" integrity="sha384-qRCjDpXBNYif7WxgGNS9nK3b8jeByXxOaG33yBbmRm6mBaYUEJNSEiWpyoEstjEp" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

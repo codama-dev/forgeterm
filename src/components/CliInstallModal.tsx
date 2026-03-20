@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import type { CliStatus } from '../../shared/types'
 
 interface CliInstallModalProps {
@@ -39,6 +39,12 @@ export function CliInstallModal({ accentColor, cliStatus, onClose, onInstalled, 
   const [installed, setInstalled] = useState(cliStatus !== 'not-setup')
   const [restarting, setRestarting] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
+  const [finderInstalled, setFinderInstalled] = useState(false)
+  const [finderBusy, setFinderBusy] = useState(false)
+
+  useEffect(() => {
+    window.forgeterm.isFinderIntegrationInstalled().then(setFinderInstalled)
+  }, [])
 
   const handleInstall = useCallback(async () => {
     setInstalling(true)
@@ -73,6 +79,27 @@ export function CliInstallModal({ accentColor, cliStatus, onClose, onInstalled, 
       setError('Failed to restart the CLI server. Try restarting ForgeTerm.')
     }
   }, [onStatusChange])
+
+  const handleFinderToggle = useCallback(async () => {
+    setFinderBusy(true)
+    setError(null)
+    if (finderInstalled) {
+      const result = await window.forgeterm.uninstallFinderIntegration()
+      if (result.success) {
+        setFinderInstalled(false)
+      } else {
+        setError(result.error || 'Failed to remove Finder integration')
+      }
+    } else {
+      const result = await window.forgeterm.installFinderIntegration()
+      if (result.success) {
+        setFinderInstalled(true)
+      } else {
+        setError(result.error || 'Failed to install Finder integration')
+      }
+    }
+    setFinderBusy(false)
+  }, [finderInstalled])
 
   const handleCopy = useCallback(async (text: string, label: string) => {
     try {
@@ -323,6 +350,69 @@ export function CliInstallModal({ accentColor, cliStatus, onClose, onInstalled, 
                   </div>
                 </div>
               </div>
+
+              {/* Finder integration */}
+              <div style={{
+                background: 'rgba(255,255,255,0.03)',
+                border: '1px solid rgba(255,255,255,0.06)',
+                borderRadius: 8,
+                padding: 16,
+                marginBottom: 16,
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: finderInstalled ? 8 : 0 }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: '#e2e8f0', fontWeight: 500 }}>Finder Integration</div>
+                    <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                      Right-click folders in Finder to open in ForgeTerm
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleFinderToggle}
+                    disabled={finderBusy}
+                    style={{
+                      background: finderInstalled ? 'rgba(74,222,128,0.15)' : 'rgba(255,255,255,0.06)',
+                      border: finderInstalled ? '1px solid rgba(74,222,128,0.3)' : '1px solid rgba(255,255,255,0.1)',
+                      borderRadius: 6,
+                      padding: '5px 12px',
+                      color: finderInstalled ? '#4ade80' : '#94a3b8',
+                      fontSize: 11,
+                      fontWeight: 500,
+                      cursor: finderBusy ? 'default' : 'pointer',
+                      opacity: finderBusy ? 0.6 : 1,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {finderBusy ? '...' : finderInstalled ? 'Enabled' : 'Enable'}
+                  </button>
+                </div>
+                {finderInstalled && (
+                  <div style={{
+                    background: '#0f172a',
+                    borderRadius: 6,
+                    padding: '8px 12px',
+                    fontSize: 11,
+                    color: '#64748b',
+                    lineHeight: 1.6,
+                  }}>
+                    <div><strong style={{ color: '#94a3b8' }}>Open in ForgeTerm</strong> - opens the folder as a project</div>
+                    <div><strong style={{ color: '#94a3b8' }}>Open as Workspace</strong> - child folders become workspace projects</div>
+                  </div>
+                )}
+              </div>
+
+              {error && (
+                <div style={{
+                  background: 'rgba(248,113,113,0.1)',
+                  border: '1px solid rgba(248,113,113,0.2)',
+                  borderRadius: 6,
+                  padding: '8px 12px',
+                  fontSize: 11,
+                  color: '#f87171',
+                  marginBottom: 12,
+                }}>
+                  {error}
+                </div>
+              )}
 
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                 <button

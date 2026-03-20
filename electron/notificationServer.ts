@@ -13,6 +13,7 @@ interface NotificationServerOptions {
   getProjectDisplayName: (projectPath: string) => string | null
   focusOrCreateWindow: (projectPath: string) => void
   loadRecentProjects: () => Array<{ path: string; name: string; lastOpened?: number; workspace?: string }>
+  openFolderAsWorkspace: (parentPath: string) => void
 }
 
 interface CliCommand {
@@ -90,6 +91,21 @@ export class NotificationServer {
         case 'list': {
           const projects = this.options.loadRecentProjects()
           return { ok: true, data: projects }
+        }
+
+        case 'open-workspace': {
+          const parentPath = payload.path as string
+          if (!parentPath) return { ok: false, error: 'Missing path' }
+          try {
+            const resolved = path.resolve(parentPath)
+            if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+              return { ok: false, error: `Not a directory: ${resolved}` }
+            }
+            this.options.openFolderAsWorkspace(resolved)
+            return { ok: true }
+          } catch (err: unknown) {
+            return { ok: false, error: (err as Error).message }
+          }
         }
 
         default:

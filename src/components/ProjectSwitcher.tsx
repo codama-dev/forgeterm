@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import type { RecentProject, Workspace, DetectedEditor, DisplayInfo } from '../../shared/types'
+import { EditWorkspaceModal } from './EditWorkspaceModal'
 
 interface ProjectSwitcherProps {
   accentColor: string
@@ -130,6 +131,7 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
   const [dragIdx, setDragIdx] = useState<number>(-1)
   const [dragOverIdx, setDragOverIdx] = useState<number>(-1)
   const [showArrangeHelp, setShowArrangeHelp] = useState<string | null>(null)
+  const [editingWorkspace, setEditingWorkspace] = useState<Workspace | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const refreshData = useCallback(() => {
@@ -498,20 +500,13 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                         <rect x="1" y="3" width="6" height="10" rx="1" />
                         <rect x="9" y="3" width="6" height="10" rx="1" />
                       </svg>
-                      <span className="switcher-name">{ws.name}</span>
+                      <span className="switcher-name">
+                        {ws.emoji && <span style={{ marginRight: 4 }}>{ws.emoji}</span>}
+                        {ws.name}
+                      </span>
                       <span className="switcher-workspace-count">
                         {enabledCount}/{ws.projects.length}
                       </span>
-                      <button
-                        className="switcher-icon-btn switcher-open-ws-btn"
-                        onClick={(e) => { e.stopPropagation(); openWorkspace(ws) }}
-                        title="Open workspace"
-                        style={{ color: accentColor }}
-                      >
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M3 2l10 6-10 6V2z" />
-                        </svg>
-                      </button>
                       <button
                         className={`switcher-icon-btn arrange-toggle ${arrange ? 'active' : ''}`}
                         onClick={(e) => toggleArrange(ws.name, e)}
@@ -542,6 +537,18 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                         </button>
                       )}
                       <button
+                        className="switcher-icon-btn switcher-ws-edit-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditingWorkspace(ws)
+                        }}
+                        title="Edit workspace"
+                      >
+                        <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" />
+                        </svg>
+                      </button>
+                      <button
                         className="switcher-icon-btn switcher-delete-btn"
                         onClick={(e) => {
                           e.stopPropagation()
@@ -552,6 +559,9 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                         <svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><path d="M4 4l8 8M12 4l-8 8" /></svg>
                       </button>
                     </div>
+                    {ws.description && (
+                      <div className="ws-description-text">{ws.description}</div>
+                    )}
                     {showArrangeHelp === ws.name && (
                       <div className="arrange-help-panel">
                         <div className="arrange-help-row"><strong>Drag</strong> project tags to reorder their window positions (A, B, C...)</div>
@@ -742,6 +752,16 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
                         </div>
                       )
                     })()}
+                    <button
+                      className="switcher-open-ws-btn"
+                      onClick={(e) => { e.stopPropagation(); openWorkspace(ws) }}
+                      title="Open workspace"
+                      style={{ background: ws.accentColor || accentColor, color: '#0f172a' }}
+                    >
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M3 2l10 6-10 6V2z" />
+                      </svg>
+                    </button>
                   </div>
                 )
               })}
@@ -893,6 +913,24 @@ export function ProjectSwitcher({ accentColor, onCancel, welcomeMode }: ProjectS
 
       {toast && (
         <div className="switcher-toast">{toast}</div>
+      )}
+
+      {editingWorkspace && (
+        <EditWorkspaceModal
+          workspace={editingWorkspace}
+          accentColor={accentColor}
+          projects={projects}
+          onSave={async () => {
+            setEditingWorkspace(null)
+            await refreshData()
+          }}
+          onDelete={async () => {
+            await window.forgeterm.deleteWorkspace(editingWorkspace.name)
+            setEditingWorkspace(null)
+            await refreshData()
+          }}
+          onCancel={() => setEditingWorkspace(null)}
+        />
       )}
 
       {confirmDelete && (

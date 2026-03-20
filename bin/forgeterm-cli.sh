@@ -18,10 +18,11 @@ usage() {
 Usage: forgeterm <command> [options]
 
 Commands:
-  notify "message"    Send a native notification via ForgeTerm
-  open [path]         Open a project in the running ForgeTerm app
-  list [--json]       List recent projects
-  help                Show this help
+  notify "message"        Send a native notification via ForgeTerm
+  open [path]             Open a project in the running ForgeTerm app
+  open-workspace [path]   Open a folder's children as a workspace
+  list [--json]           List recent projects
+  help                    Show this help
 
 Run 'forgeterm <command> --help' for command-specific help.
 USAGE
@@ -260,6 +261,41 @@ else:
   fi
 }
 
+cmd_open_workspace() {
+  if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat <<'USAGE'
+Usage: forgeterm open-workspace <path>
+
+Open a folder as a workspace. All immediate child directories become
+projects in the workspace. The workspace is named after the folder.
+
+Examples:
+  forgeterm open-workspace ~/projects
+  forgeterm open-workspace .
+USAGE
+    exit 0
+  fi
+
+  local target="${1:-.}"
+  local abs_path
+  abs_path=$(cd "$target" 2>/dev/null && pwd)
+  if [ -z "$abs_path" ]; then
+    echo "Not a directory: $target" >&2
+    exit 1
+  fi
+
+  local json="{\"command\":\"open-workspace\",\"path\":$(json_string "$abs_path")}"
+  local response
+  response=$(send_to_socket "$json") || exit 1
+
+  if echo "$response" | grep -q '"ok":true'; then
+    echo "Opened workspace from $abs_path"
+  else
+    echo "Failed to open workspace: $response" >&2
+    exit 1
+  fi
+}
+
 # Main dispatch
 case "${1:-}" in
   notify)
@@ -273,6 +309,10 @@ case "${1:-}" in
   list)
     shift
     cmd_list "$@"
+    ;;
+  open-workspace)
+    shift
+    cmd_open_workspace "$@"
     ;;
   help|--help|-h)
     usage

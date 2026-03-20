@@ -1,12 +1,15 @@
-import { app, BrowserWindow, ipcMain, Menu, dialog, shell, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, Tray, nativeImage, dialog, shell, screen } from 'electron'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import { execSync } from 'node:child_process'
 import { PtyManager } from './ptyManager'
-import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate } from '../shared/types'
+import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport } from '../shared/types'
 import { UpdateManager } from './updater'
 import { NotificationServer, getSocketPath } from './notificationServer'
+import { isFinderIntegrationInstalled, installFinderIntegration, uninstallFinderIntegration } from './finderIntegration'
+import { RemoteServer } from './remoteServer'
+import type { RemoteStatus } from './remoteServer'
 import { generateWindowTheme, getTerminalTheme, PRESET_THEMES } from '../src/themes'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -32,6 +35,15 @@ interface WindowState {
 
 const windowStates = new Map<number, WindowState>()
 const updateManager = new UpdateManager()
+
+// --- Tray & activity tracking ---
+let tray: Tray | null = null
+
+interface WindowActivityInfo {
+  projectName: string
+  sessions: SessionStatusReport[]
+}
+const windowActivities = new Map<number, WindowActivityInfo>()
 const notificationServer = new NotificationServer({
   findWindowForProject,
   getProjectDisplayName: (projectPath: string) => {
@@ -43,6 +55,13 @@ const notificationServer = new NotificationServer({
     focusOrCreateWindow(projectPath)
   },
   loadRecentProjects,
+  openFolderAsWorkspace,
+})
+
+const remoteServer = new RemoteServer({
+  windowStates,
+  loadWorkspaces: () => loadWorkspaces(),
+  loadConfig: (projectPath: string) => loadConfig(projectPath),
 })
 
 // --- Recent projects ---
@@ -89,6 +108,34 @@ function loadWorkspaces(): Workspace[] {
 
 function saveWorkspaces(workspaces: Workspace[]) {
   fs.writeFileSync(getWorkspacesPath(), JSON.stringify(workspaces, null, 2), 'utf-8')
+}
+
+function openFolderAsWorkspace(parentPath: string) {
+  const folderName = path.basename(parentPath)
+  const children = fs.readdirSync(parentPath, { withFileTypes: true })
+    .filter(d => d.isDirectory() && !d.name.startsWith('.'))
+    .map(d => path.join(parentPath, d.name))
+
+  if (children.length === 0) {
+    // No child dirs - just open the folder itself
+    focusOrCreateWindow(parentPath)
+    return
+  }
+
+  // Create or update workspace
+  const workspaces = loadWorkspaces()
+  const existing = workspaces.find(w => w.name === folderName)
+  if (existing) {
+    existing.projects = children
+  } else {
+    workspaces.push({ name: folderName, projects: children })
+  }
+  saveWorkspaces(workspaces)
+
+  // Open all child projects
+  for (const childPath of children) {
+    focusOrCreateWindow(childPath)
+  }
 }
 
 function setProjectWorkspace(projectPath: string, workspaceName: string) {
@@ -412,6 +459,9 @@ function createProjectWindow(projectPath: string | null) {
       state.configWatcher?.close()
       windowStates.delete(win.id)
     }
+    windowActivities.delete(win.id)
+    updateTrayMenu()
+    updateDockBadge()
   })
 
   if (VITE_DEV_SERVER_URL) {
@@ -611,6 +661,125 @@ function importProjectsFromFile(filePath: string): ImportResult | null {
   }
 }
 
+// --- Tray menu & dock badge ---
+
+function createTray() {
+  // Create a 18x18 monochrome terminal icon as a template image
+  // Using a simple >_ prompt icon drawn as raw pixel data
+  const size = 32
+  const buf = Buffer.alloc(size * size * 4, 0)
+  function setPixel(x: number, y: number) {
+    if (x < 0 || x >= size || y < 0 || y >= size) return
+    const i = (y * size + x) * 4
+    buf[i] = 0; buf[i + 1] = 0; buf[i + 2] = 0; buf[i + 3] = 255
+  }
+  function line(x0: number, y0: number, x1: number, y1: number, thickness = 2) {
+    const dx = x1 - x0, dy = y1 - y0
+    const steps = Math.max(Math.abs(dx), Math.abs(dy))
+    for (let s = 0; s <= steps; s++) {
+      const x = Math.round(x0 + (dx * s) / steps)
+      const y = Math.round(y0 + (dy * s) / steps)
+      for (let t = 0; t < thickness; t++) {
+        setPixel(x, y + t)
+        setPixel(x + t, y)
+      }
+    }
+  }
+  // Draw > arrow (chevron)
+  line(6, 8, 14, 16, 2)
+  line(14, 16, 6, 24, 2)
+  // Draw _ underscore
+  line(17, 24, 26, 24, 2)
+  line(17, 25, 26, 25, 1)
+
+  const icon = nativeImage.createFromBuffer(buf, { width: size, height: size, scaleFactor: 2 })
+  icon.setTemplateImage(true)
+
+  tray = new Tray(icon)
+  tray.setToolTip('ForgeTerm')
+  updateTrayMenu()
+}
+
+function updateTrayMenu() {
+  if (!tray) return
+
+  const menuItems: Electron.MenuItemConstructorOptions[] = []
+
+  for (const [winId, info] of windowActivities) {
+    const win = BrowserWindow.fromId(winId)
+    if (!win || win.isDestroyed()) continue
+
+    const hasWorking = info.sessions.some((s) => s.status === 'working')
+    const hasUnread = info.sessions.some((s) => s.status === 'unread')
+    const statusPrefix = hasWorking ? '\u{1F7E2} ' : hasUnread ? '\u{1F7E1} ' : ''
+
+    menuItems.push({
+      label: `${statusPrefix}${info.projectName}`,
+      click: () => {
+        if (win.isMinimized()) win.restore()
+        win.focus()
+      },
+    })
+
+    for (const session of info.sessions) {
+      const dot = session.status === 'working' ? '  \u25CF ' :
+                  session.status === 'unread' ? '  \u25C9 ' :
+                  '  \u25CB '
+      menuItems.push({
+        label: `${dot}${session.sessionName}`,
+        click: () => {
+          if (win.isMinimized()) win.restore()
+          win.focus()
+          win.webContents.send('notification:focus-session', session.sessionId)
+        },
+      })
+    }
+
+    menuItems.push({ type: 'separator' })
+  }
+
+  // If no activity reports yet, show open windows
+  if (menuItems.length === 0) {
+    for (const [winId, state] of windowStates) {
+      const win = BrowserWindow.fromId(winId)
+      if (!win || win.isDestroyed()) continue
+      const config = loadConfig(state.projectPath)
+      const name = config?.projectName || path.basename(state.projectPath) || 'ForgeTerm'
+      menuItems.push({
+        label: name,
+        click: () => {
+          if (win.isMinimized()) win.restore()
+          win.focus()
+        },
+      })
+    }
+    if (menuItems.length > 0) menuItems.push({ type: 'separator' })
+  }
+
+  menuItems.push({
+    label: 'New Window...',
+    click: async () => {
+      const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+      if (!result.canceled && result.filePaths.length > 0) {
+        focusOrCreateWindow(result.filePaths[0])
+      }
+    },
+  })
+  menuItems.push({ type: 'separator' })
+  menuItems.push({ label: 'Quit ForgeTerm', click: () => app.quit() })
+
+  tray.setContextMenu(Menu.buildFromTemplate(menuItems))
+}
+
+function updateDockBadge() {
+  if (process.platform !== 'darwin') return
+  let totalUnread = 0
+  for (const [, info] of windowActivities) {
+    totalUnread += info.sessions.filter((s) => s.status === 'unread').length
+  }
+  app.dock.setBadge(totalUnread > 0 ? String(totalUnread) : '')
+}
+
 function setupIpcHandlers() {
   ipcMain.handle('session:create', (event, name: string, command?: string, idle?: boolean) => {
     const state = getStateForEvent(event)
@@ -791,6 +960,21 @@ function setupIpcHandlers() {
       const lastNew = windows[windows.length - 1]
       if (sourceWin && lastNew && lastNew !== sourceWin) {
         setTimeout(() => lastNew.focus(), 100)
+      }
+      // Send default command to each window's first session after a short delay
+      if (ws.defaultCommand) {
+        const cmd = ws.defaultCommand
+        setTimeout(() => {
+          for (const win of windows) {
+            const state = windowStates.get(win.id)
+            if (state) {
+              const firstSession = state.ptyManager.getFirstSessionId()
+              if (firstSession) {
+                state.ptyManager.write(firstSession, cmd + '\n')
+              }
+            }
+          }
+        }, 1500)
       }
     }
   })
@@ -975,6 +1159,64 @@ function setupIpcHandlers() {
     fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
   })
 
+  ipcMain.handle('file:read-content', async (_event, filePath: string) => {
+    try {
+      const stats = fs.statSync(filePath)
+      if (stats.size > 1024 * 1024) {
+        return { content: '', isBinary: true }
+      }
+      const buf = Buffer.alloc(Math.min(8192, stats.size))
+      const fd = fs.openSync(filePath, 'r')
+      fs.readSync(fd, buf, 0, buf.length, 0)
+      fs.closeSync(fd)
+      if (buf.includes(0)) {
+        return { content: '', isBinary: true }
+      }
+      const content = fs.readFileSync(filePath, 'utf-8')
+      return { content, isBinary: false }
+    } catch {
+      return { content: '', isBinary: true }
+    }
+  })
+
+  ipcMain.handle('file:copy-to-project', (event, filePath: string) => {
+    const state = getStateForEvent(event)
+    if (!state) throw new Error('No project path')
+    const fileName = path.basename(filePath)
+    const newPath = path.join(state.projectPath, fileName)
+    fs.copyFileSync(filePath, newPath)
+    return { newPath, relativePath: fileName }
+  })
+
+  ipcMain.handle('workspaces:rename', (_event, oldName: string, newName: string) => {
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find((w) => w.name === oldName)
+    if (ws) {
+      ws.name = newName
+      saveWorkspaces(workspaces)
+      const projects = loadRecentProjects().map((p) =>
+        p.workspace === oldName ? { ...p, workspace: newName } : p,
+      )
+      fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
+    }
+  })
+
+  ipcMain.handle('workspaces:update', (_event, name: string, updates: Partial<Workspace>) => {
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find((w) => w.name === name)
+    if (ws) {
+      if (updates.emoji !== undefined) ws.emoji = updates.emoji || undefined
+      if (updates.description !== undefined) ws.description = updates.description || undefined
+      if (updates.accentColor !== undefined) ws.accentColor = updates.accentColor || undefined
+      if (updates.defaultCommand !== undefined) ws.defaultCommand = updates.defaultCommand || undefined
+      saveWorkspaces(workspaces)
+    }
+  })
+
+  ipcMain.handle('workspaces:add-project', (_event, workspaceName: string, projectPath: string) => {
+    setProjectWorkspace(projectPath, workspaceName)
+  })
+
   ipcMain.handle('config:open-data-file', async (_event, which: string) => {
     const filePath = which === 'workspaces' ? getWorkspacesPath() : getRecentProjectsPath()
     if (!fs.existsSync(filePath)) {
@@ -1104,6 +1346,18 @@ function setupIpcHandlers() {
     }
   })
 
+  ipcMain.handle('finder:is-installed', () => {
+    return isFinderIntegrationInstalled()
+  })
+
+  ipcMain.handle('finder:install', () => {
+    return installFinderIntegration()
+  })
+
+  ipcMain.handle('finder:uninstall', () => {
+    return uninstallFinderIntegration()
+  })
+
   ipcMain.handle('cli:should-show-prompt', () => {
     if (fs.existsSync('/usr/local/bin/forgeterm')) return false
     try {
@@ -1179,6 +1433,51 @@ function setupIpcHandlers() {
     const info = updateManager.getLastCheck()
     if (!info?.dmgUrl) return null
     return updateManager.buildUpdateCommand(info.dmgUrl)
+  })
+
+  // --- Remote access ---
+
+  ipcMain.handle('remote:start', async (): Promise<RemoteStatus> => {
+    await remoteServer.start()
+    const tunnelUrl = await remoteServer.startTunnel()
+    const status = remoteServer.getStatus()
+    // Broadcast to all windows
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('remote:status-changed', status)
+      }
+    }
+    return status
+  })
+
+  ipcMain.handle('remote:stop', (): RemoteStatus => {
+    remoteServer.stop()
+    const status = remoteServer.getStatus()
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (!win.isDestroyed()) {
+        win.webContents.send('remote:status-changed', status)
+      }
+    }
+    return status
+  })
+
+  ipcMain.handle('remote:status', (): RemoteStatus => {
+    return remoteServer.getStatus()
+  })
+
+  // Session activity tracking for tray menu and dock badge
+  ipcMain.on('activity:report', (event, statuses: SessionStatusReport[]) => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (!win) return
+    const state = windowStates.get(win.id)
+    if (!state?.projectPath) return
+
+    const config = loadConfig(state.projectPath)
+    const projectName = config?.projectName || path.basename(state.projectPath)
+
+    windowActivities.set(win.id, { projectName, sessions: statuses })
+    updateTrayMenu()
+    updateDockBadge()
   })
 }
 
@@ -1440,6 +1739,7 @@ app.whenReady().then(() => {
   })
   buildMenu()
   setupIpcHandlers()
+  createTray()
   notificationServer.start()
 
   // Broadcast update availability to all renderer windows
@@ -1457,6 +1757,7 @@ app.whenReady().then(() => {
 })
 
 app.on('will-quit', () => {
+  remoteServer.stop()
   notificationServer.stop()
 })
 

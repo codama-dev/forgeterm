@@ -18,6 +18,7 @@ interface ProjectSettingsProps {
 export function ProjectSettings({ config, accentColor, projectName, onSave, onCancel }: ProjectSettingsProps) {
   const [sessions, setSessions] = useState<SessionConfig[]>([])
   const [customName, setCustomName] = useState('')
+  const [dragDropBehavior, setDragDropBehavior] = useState<'ask' | 'path' | 'content' | 'copy'>('ask')
   const [workspaceName, setWorkspaceName] = useState('')
   const [existingWorkspaces, setExistingWorkspaces] = useState<Workspace[]>([])
   const [showWorkspaceSuggestions, setShowWorkspaceSuggestions] = useState(false)
@@ -29,6 +30,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
 
   useEffect(() => {
     setCustomName(config?.projectName ?? '')
+    setDragDropBehavior(config?.dragDropBehavior ?? 'ask')
     const configSessions = config?.sessions || []
     setSessions(
       configSessions.map((s) => ({
@@ -103,6 +105,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
     const updated: ForgeTermConfig = {
       ...config,
       projectName: customName.trim() || undefined,
+      dragDropBehavior: dragDropBehavior === 'ask' ? undefined : dragDropBehavior,
       sessions: validSessions.map((s) => ({
         name: s.name.trim(),
         command: s.command.trim() || undefined,
@@ -120,7 +123,7 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
       }
     }
     onSave(updated)
-  }, [config, customName, sessions, workspaceName, onSave])
+  }, [config, customName, dragDropBehavior, sessions, workspaceName, onSave])
 
   const filteredWorkspaces = existingWorkspaces.filter(
     (ws) => ws.name.toLowerCase().includes(workspaceName.toLowerCase()) && ws.name !== workspaceName,
@@ -189,6 +192,20 @@ export function ProjectSettings({ config, accentColor, projectName, onSave, onCa
               ))}
             </div>
           )}
+        </div>
+
+        <div className="form-field">
+          <label>Drag & Drop</label>
+          <select
+            className="drag-drop-select"
+            value={dragDropBehavior}
+            onChange={(e) => setDragDropBehavior(e.target.value as any)}
+          >
+            <option value="ask">Ask every time</option>
+            <option value="path">Always paste path</option>
+            <option value="content">Always paste content</option>
+            <option value="copy">Always copy to project</option>
+          </select>
         </div>
 
         <div className="settings-section-title">Startup Sessions</div>

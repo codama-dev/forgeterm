@@ -15,6 +15,10 @@
     {
       "from": "bin/forgeterm-cli.sh",
       "to": "bin/forgeterm-cli.sh"
+    },
+    {
+      "from": "electron/remote-web",
+      "to": "remote-web"
     }
   ],
   "mac": {

@@ -35,6 +35,7 @@ export interface ForgeTermConfig {
     command?: string
     autoStart?: boolean
   }>
+  dragDropBehavior?: 'ask' | 'path' | 'content' | 'copy'
 }
 
 export interface SessionInfo {
@@ -61,6 +62,10 @@ export interface Workspace {
   arrange?: boolean // tile windows on open (default true)
   disabledProjects?: string[] // paths to skip when opening
   screenPrefs?: Record<string, number[]> // key = display count, value = display indices to use
+  emoji?: string
+  description?: string
+  accentColor?: string
+  defaultCommand?: string
 }
 
 export interface DisplayInfo {
@@ -122,7 +127,22 @@ export interface ForgeTermNotification {
   sessionName?: string
 }
 
+export interface RemoteStatus {
+  running: boolean
+  port: number | null
+  tunnelUrl: string | null
+  token: string | null
+}
+
 export type CliStatus = 'not-setup' | 'connected' | 'error'
+
+export type SessionActivityStatus = 'idle' | 'working' | 'unread'
+
+export interface SessionStatusReport {
+  sessionId: string
+  sessionName: string
+  status: SessionActivityStatus
+}
 
 export interface ForgeTermAPI {
   createSession: (name: string, command?: string, idle?: boolean) => Promise<string>
@@ -177,6 +197,9 @@ export interface ForgeTermAPI {
   shouldShowCliPrompt: () => Promise<boolean>
   getCliStatus: () => Promise<CliStatus>
   restartCliServer: () => Promise<boolean>
+  isFinderIntegrationInstalled: () => Promise<boolean>
+  installFinderIntegration: () => Promise<{ success: boolean; error?: string }>
+  uninstallFinderIntegration: () => Promise<{ success: boolean; error?: string }>
   checkForUpdate: () => Promise<UpdateInfo>
   getLastUpdateCheck: () => Promise<UpdateInfo | null>
   applyUpdate: () => Promise<void>
@@ -191,4 +214,14 @@ export interface ForgeTermAPI {
   deleteFavoriteTheme: (name: string) => Promise<void>
   getAllSessionTemplates: () => Promise<SessionTemplate[]>
   onFocusSession: (callback: (sessionId: string) => void) => () => void
+  readFileContent: (filePath: string) => Promise<{ content: string; isBinary: boolean }>
+  copyFileToProject: (filePath: string) => Promise<{ newPath: string; relativePath: string }>
+  renameWorkspace: (oldName: string, newName: string) => Promise<void>
+  updateWorkspace: (name: string, updates: Partial<Workspace>) => Promise<void>
+  addProjectToWorkspace: (workspaceName: string, projectPath: string) => Promise<void>
+  startRemoteAccess: () => Promise<RemoteStatus>
+  stopRemoteAccess: () => Promise<RemoteStatus>
+  getRemoteStatus: () => Promise<RemoteStatus>
+  onRemoteStatusChanged: (callback: (status: RemoteStatus) => void) => () => void
+  reportSessionStatuses: (statuses: SessionStatusReport[]) => void
 }

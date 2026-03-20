@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Sidebar } from './components/Sidebar'
-import { TerminalView, clearTerminal, scrollTerminalToTop, scrollTerminalToBottom } from './components/TerminalView'
+import { TerminalView, clearTerminal, scrollTerminalToTop, scrollTerminalToBottom, selectAllTerminal } from './components/TerminalView'
 import { NewSessionModal } from './components/NewSessionModal'
 import { ThemeEditor } from './components/ThemeEditor'
 import { ProjectSettings } from './components/ProjectSettings'
 import { ProjectSwitcher } from './components/ProjectSwitcher'
 import { HelpModal } from './components/HelpModal'
 import { CliInstallModal } from './components/CliInstallModal'
+import { RemoteAccessModal } from './components/RemoteAccessModal'
 import { UpdateBanner } from './components/UpdateBanner'
 import { useSessionStore } from './store/sessionStore'
 import type { ForgeTermConfig, CliStatus } from '../shared/types'
@@ -27,6 +28,8 @@ function App() {
   const [showWelcome, setShowWelcome] = useState(false)
   const [showCliInstall, setShowCliInstall] = useState(false)
   const [showCliPrompt, setShowCliPrompt] = useState(false)
+  const [showRemoteAccess, setShowRemoteAccess] = useState(false)
+  const [remoteRunning, setRemoteRunning] = useState(false)
   const [cliStatus, setCliStatus] = useState<CliStatus>('not-setup')
   const [folderName, setFolderName] = useState('ForgeTerm')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('full')
@@ -78,10 +81,17 @@ function App() {
       setFolderName(folder)
       document.title = projectConfig?.projectName || folder
 
+      // Create sessions in parallel for faster startup
       if (projectConfig?.sessions?.length) {
-        for (const s of projectConfig.sessions) {
-          const idle = s.autoStart === false
-          await createSession(s.name, s.command, idle)
+        const results = await Promise.all(
+          projectConfig.sessions.map(async (s) => {
+            const idle = s.autoStart === false
+            const id = await window.forgeterm.createSession(s.name, s.command, idle)
+            return id ? { id, name: s.name, command: s.command, running: !idle } : null
+          })
+        )
+        for (const r of results) {
+          if (r) addSession(r)
         }
       } else {
         await createSession('shell')
@@ -89,7 +99,7 @@ function App() {
     }
 
     init()
-  }, [createSession])
+  }, [createSession, addSession])
 
   // Check CLI status on mount and periodically
   const refreshCliStatus = useCallback(() => {
@@ -108,6 +118,26 @@ function App() {
     const interval = setInterval(refreshCliStatus, 60_000)
     return () => clearInterval(interval)
   }, [refreshCliStatus])
+
+  // Track remote access status
+  useEffect(() => {
+    window.forgeterm.getRemoteStatus().then(s => setRemoteRunning(s.running))
+    return window.forgeterm.onRemoteStatusChanged(s => setRemoteRunning(s.running))
+  }, [])
+
+  // Report session statuses to main process for tray menu and dock badge
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const store = useSessionStore.getState()
+      const statuses = store.sessions.map((s) => ({
+        sessionId: s.id,
+        sessionName: s.name,
+        status: s.activityStatus,
+      }))
+      window.forgeterm.reportSessionStatuses(statuses)
+    }, 2000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Listen for session exits
   useEffect(() => {
@@ -168,15 +198,21 @@ function App() {
       document.title = projectConfig?.projectName || folder
 
       if (projectConfig?.sessions?.length) {
-        for (const s of projectConfig.sessions) {
-          const idle = s.autoStart === false
-          await createSession(s.name, s.command, idle)
+        const results = await Promise.all(
+          projectConfig.sessions.map(async (s) => {
+            const idle = s.autoStart === false
+            const id = await window.forgeterm.createSession(s.name, s.command, idle)
+            return id ? { id, name: s.name, command: s.command, running: !idle } : null
+          })
+        )
+        for (const r of results) {
+          if (r) addSession(r)
         }
       } else {
         await createSession('shell')
       }
     })
-  }, [createSession])
+  }, [createSession, addSession])
 
   const cycleSidebarMode = useCallback(() => {
     setSidebarMode((prev) => {
@@ -244,6 +280,14 @@ function App() {
         setShowProjectSwitcher(true)
       }
 
+      // Cmd+A: select all terminal content
+      if (mod && !e.shiftKey && e.key === 'a') {
+        e.preventDefault()
+        if (activeSessionId) {
+          selectAllTerminal(activeSessionId)
+        }
+      }
+
       // Cmd+K: clear terminal
       if (mod && e.key === 'k') {
         e.preventDefault()
@@ -298,6 +342,7 @@ function App() {
         setShowProjectSwitcher(false)
         setShowHelp(false)
         setShowCliInstall(false)
+        setShowRemoteAccess(false)
       }
     }
 
@@ -432,7 +477,9 @@ function App() {
             onThemeEditor={() => setShowThemeEditor(true)}
             onHelp={() => setShowHelp(true)}
             onCli={() => setShowCliInstall(true)}
+            onRemote={() => setShowRemoteAccess(true)}
             cliStatus={cliStatus}
+            remoteRunning={remoteRunning}
           />
         )}
         <div className={`terminal-area${sidebarMode === 'hidden' || showCliPrompt ? ' has-floating' : ''}`}>
@@ -542,6 +589,13 @@ function App() {
             refreshCliStatus()
           }}
           onStatusChange={refreshCliStatus}
+        />
+      )}
+
+      {showRemoteAccess && (
+        <RemoteAccessModal
+          accentColor={accentColor}
+          onClose={() => setShowRemoteAccess(false)}
         />
       )}
 

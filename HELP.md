@@ -32,7 +32,34 @@ The tiling adapts to the number of projects: two get a side-by-side split, three
 
 If you have multiple monitors, choose which screen each workspace targets using the screen selector buttons. Spread projects across two or three displays, or keep everything on one - each screen tiles independently.
 
+Click the pencil icon on any workspace to open the Edit Workspace modal, where you can:
+- **Rename** the workspace
+- **Set an emoji** that shows next to the workspace name
+- **Set an accent color** for the workspace open button
+- **Add a description** shown under the workspace name
+- **Add or remove projects** from the workspace
+- **Set a default command** (e.g. `git pull`) that runs in each project's first session when the workspace opens
+
 ![Workspace management with screen selectors](screenshots/feature-workspaces.png)
+
+### Drag & Drop
+
+Drag files onto any terminal session to choose what happens:
+
+- **Paste path** - Inserts the full file path in double quotes: `"/Users/x/file.txt"`
+- **Paste content** - Reads the file and writes its text content into the terminal. Binary files (images, etc.) fall back to paste path
+- **Copy to project** - Copies the file to your project root and pastes the new relative path in double quotes
+
+By default, a menu appears each time so you can choose. To skip the menu, set a default behavior in Project Settings (Cmd+,) under "Drag & Drop":
+- Ask every time (default)
+- Always paste path
+- Always paste content
+- Always copy to project
+
+You can also set `dragDropBehavior` in `.forgeterm.json`:
+```json
+{ "dragDropBehavior": "path" }
+```
 
 ### Per-Project Theming
 
