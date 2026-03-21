@@ -6,6 +6,9 @@ import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
 import { spawn, type ChildProcess } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import type { PtyManager } from './ptyManager'
 import type { Workspace, RemoteStatus } from '../shared/types'
 
@@ -30,7 +33,9 @@ function safeCompare(a: string | null | undefined, b: string | null | undefined)
 }
 
 const AUTH_FAIL_WINDOW_MS = 60_000
-const MAX_AUTH_FAILURES = 10
+const MAX_AUTH_FAILURES_PER_IP = 5
+const MAX_AUTH_FAILURES_GLOBAL = 20
+const MAX_WS_CONNECTIONS = 5
 
 export class RemoteServer {
   private app: express.Express | null = null
@@ -39,84 +44,87 @@ export class RemoteServer {
   private tunnelProcess: ChildProcess | null = null
   private tunnelUrl: string | null = null
   private port: number | null = null
-  private token: string | null = null
+  private pin: string | null = null
+  private sessionPath: string | null = null
   private options: RemoteServerOptions
-  private authFailures = new Map<string, { count: number; firstAt: number }>()
+  private authFailuresPerIp = new Map<string, { count: number; firstAt: number }>()
+  private globalAuthFailures = { count: 0, firstAt: 0 }
+  private activeWsConnections = 0
 
   constructor(options: RemoteServerOptions) {
     this.options = options
   }
 
-  private getAuthFilePath(): string {
-    return path.join(app.getPath('userData'), 'remote-auth.json')
+  private generatePin(): string {
+    return String(crypto.randomInt(0, 10000)).padStart(4, '0')
   }
 
-  private loadOrCreateToken(): string {
-    const authPath = this.getAuthFilePath()
-    try {
-      const raw = fs.readFileSync(authPath, 'utf-8')
-      const data = JSON.parse(raw)
-      if (data.token) return data.token
-    } catch { /* generate new */ }
-
-    const token = crypto.randomBytes(32).toString('hex')
-    fs.writeFileSync(authPath, JSON.stringify({ token }, null, 2), { encoding: 'utf-8', mode: 0o600 })
-    return token
+  private generateSessionPath(): string {
+    return crypto.randomBytes(6).toString('hex')
   }
 
-  private getClientIp(req: express.Request): string {
-    return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown'
+  private getClientIp(req: express.Request | { headers: Record<string, string | string[] | undefined> }): string {
+    // CF-Connecting-IP is set by Cloudflare and cannot be spoofed by the client
+    const cfIp = req.headers['cf-connecting-ip'] as string | undefined
+    if (cfIp) return cfIp.trim()
+    // Fallback to req.ip (do NOT trust x-forwarded-for - it's spoofable)
+    return ('ip' in req ? (req as express.Request).ip : undefined) || 'unknown'
   }
 
   private isRateLimited(ip: string): boolean {
-    const entry = this.authFailures.get(ip)
+    const now = Date.now()
+    // Global rate limit - protects against distributed attacks
+    if (this.globalAuthFailures.count >= MAX_AUTH_FAILURES_GLOBAL) {
+      if (now - this.globalAuthFailures.firstAt <= AUTH_FAIL_WINDOW_MS) {
+        return true
+      }
+      this.globalAuthFailures = { count: 0, firstAt: 0 }
+    }
+    // Per-IP rate limit
+    const entry = this.authFailuresPerIp.get(ip)
     if (!entry) return false
-    if (Date.now() - entry.firstAt > AUTH_FAIL_WINDOW_MS) {
-      this.authFailures.delete(ip)
+    if (now - entry.firstAt > AUTH_FAIL_WINDOW_MS) {
+      this.authFailuresPerIp.delete(ip)
       return false
     }
-    return entry.count >= MAX_AUTH_FAILURES
+    return entry.count >= MAX_AUTH_FAILURES_PER_IP
   }
 
   private recordAuthFailure(ip: string) {
-    const entry = this.authFailures.get(ip)
-    if (!entry || Date.now() - entry.firstAt > AUTH_FAIL_WINDOW_MS) {
-      this.authFailures.set(ip, { count: 1, firstAt: Date.now() })
+    const now = Date.now()
+    // Per-IP
+    const entry = this.authFailuresPerIp.get(ip)
+    if (!entry || now - entry.firstAt > AUTH_FAIL_WINDOW_MS) {
+      this.authFailuresPerIp.set(ip, { count: 1, firstAt: now })
     } else {
       entry.count++
+    }
+    // Global
+    if (now - this.globalAuthFailures.firstAt > AUTH_FAIL_WINDOW_MS) {
+      this.globalAuthFailures = { count: 1, firstAt: now }
+    } else {
+      this.globalAuthFailures.count++
     }
   }
 
   private authMiddleware(req: express.Request, res: express.Response, next: express.NextFunction) {
-    // Allow the login page and its assets without auth
-    if (req.path === '/' || req.path === '/login' || req.path.startsWith('/static/')) {
+    // Allow login page, static assets, and auth endpoint without cookie
+    if (req.path === '/' || req.path === '/api/auth' || req.path.startsWith('/static/')) {
       return next()
     }
 
-    const ip = this.getClientIp(req)
-    if (this.isRateLimited(ip)) {
-      res.status(429).json({ error: 'Too many failed attempts. Try again later.' })
-      return
-    }
-
-    const tokenFromQuery = req.query.token as string | undefined
-    const authHeader = req.headers.authorization
-    const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-    const tokenFromCookie = this.parseCookieToken(req.headers.cookie)
-
-    const providedToken = tokenFromQuery || tokenFromHeader || tokenFromCookie
-
-    if (safeCompare(providedToken, this.token)) {
+    // Cookie-only auth for all other routes
+    const pinFromCookie = this.parseCookiePin(req.headers.cookie)
+    if (safeCompare(pinFromCookie, this.pin)) {
       return next()
     }
 
-    this.recordAuthFailure(ip)
     res.status(401).json({ error: 'Unauthorized' })
   }
 
-  private parseCookieToken(cookie?: string): string | undefined {
+  private parseCookiePin(cookie?: string): string | undefined {
     if (!cookie) return undefined
-    const match = cookie.match(/forgeterm_token=([^;]+)/)
+    const match = cookie.match(/forgeterm_pin=([^;]+)/)
     return match?.[1]
   }
 
@@ -151,12 +159,16 @@ export class RemoteServer {
   async start(preferredPort = 0): Promise<void> {
     if (this.server?.listening) return
 
-    this.token = this.loadOrCreateToken()
+    this.pin = this.generatePin()
+    this.sessionPath = this.generateSessionPath()
+    this.activeWsConnections = 0
+    this.authFailuresPerIp.clear()
+    this.globalAuthFailures = { count: 0, firstAt: 0 }
 
     const expressApp = express()
     this.app = expressApp
 
-    // Security headers
+    // Security headers for all requests
     expressApp.use((_req, res, next) => {
       res.setHeader('X-Content-Type-Options', 'nosniff')
       res.setHeader('X-Frame-Options', 'DENY')
@@ -164,20 +176,25 @@ export class RemoteServer {
       next()
     })
 
-    // Auth middleware
-    expressApp.use((req, res, next) => this.authMiddleware(req, res, next))
+    // All routes are behind the session path
+    const router = express.Router()
+    router.use((req, res, next) => this.authMiddleware(req, res, next))
 
-    // Serve static web client - find the files in dev or production
+    // Serve static web client
     const candidates = [
-      path.join(__dirname, 'remote-web'),                     // dist-electron/remote-web (unlikely but check)
-      path.join(__dirname, '..', 'electron', 'remote-web'),   // dev: project root / electron/remote-web
-      path.join(process.resourcesPath || '', 'remote-web'),   // production: Resources/remote-web
+      path.join(__dirname, 'remote-web'),
+      path.join(__dirname, '..', 'electron', 'remote-web'),
+      path.join(process.resourcesPath || '', 'remote-web'),
     ]
     const staticDir = candidates.find(d => fs.existsSync(d)) || candidates[1]
-    expressApp.use('/static', express.static(staticDir))
+    router.use('/static', express.static(staticDir))
 
-    // Serve index.html for root
-    expressApp.get('/', (_req, res) => {
+    // Serve index.html
+    router.get('/', (req, res) => {
+      // Ensure trailing slash so relative URLs resolve correctly
+      if (!req.originalUrl.endsWith('/')) {
+        return res.redirect(301, req.originalUrl + '/')
+      }
       const indexPath = path.join(staticDir, 'index.html')
       if (fs.existsSync(indexPath)) {
         res.sendFile(indexPath)
@@ -186,18 +203,37 @@ export class RemoteServer {
       }
     })
 
+    // Auth endpoint - validates PIN, sets HttpOnly cookie
+    router.post('/api/auth', express.json({ limit: '256b' }), (req, res) => {
+      const ip = this.getClientIp(req)
+      if (this.isRateLimited(ip)) {
+        return res.status(429).json({ error: 'Too many failed attempts. Try again later.' })
+      }
+
+      const providedPin = typeof req.body?.pin === 'string' ? req.body.pin : ''
+      if (safeCompare(providedPin, this.pin)) {
+        res.setHeader('Set-Cookie',
+          `forgeterm_pin=${this.pin}; HttpOnly; Secure; SameSite=Strict; Path=/s/${this.sessionPath}/; Max-Age=86400`
+        )
+        return res.json({ ok: true })
+      }
+
+      this.recordAuthFailure(ip)
+      res.status(401).json({ error: 'Invalid PIN' })
+    })
+
     // API: list windows
-    expressApp.get('/api/windows', (_req, res) => {
+    router.get('/api/windows', (_req, res) => {
       res.json(this.getWindowList())
     })
 
     // API: list workspaces
-    expressApp.get('/api/workspaces', (_req, res) => {
+    router.get('/api/workspaces', (_req, res) => {
       res.json(this.options.loadWorkspaces())
     })
 
     // API: kill session
-    expressApp.post('/api/sessions/:winId/:sessionId/kill', (req, res) => {
+    router.post('/api/sessions/:winId/:sessionId/kill', (req, res) => {
       const winId = Number(req.params.winId)
       const sessionId = req.params.sessionId
       if (!Number.isInteger(winId) || winId <= 0 || !/^session-\d+$/.test(sessionId)) {
@@ -210,7 +246,7 @@ export class RemoteServer {
     })
 
     // API: restart session
-    expressApp.post('/api/sessions/:winId/:sessionId/restart', (req, res) => {
+    router.post('/api/sessions/:winId/:sessionId/restart', (req, res) => {
       const winId = Number(req.params.winId)
       const sessionId = req.params.sessionId
       if (!Number.isInteger(winId) || winId <= 0 || !/^session-\d+$/.test(sessionId)) {
@@ -238,12 +274,12 @@ export class RemoteServer {
       res.json({ ok: true })
     })
 
-    // API: auth check - sets secure cookie on success
-    expressApp.get('/api/auth', (_req, res) => {
-      res.setHeader('Set-Cookie',
-        `forgeterm_token=${this.token}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=86400`
-      )
-      res.json({ ok: true })
+    // Mount router under session path
+    expressApp.use(`/s/${this.sessionPath}`, router)
+
+    // Everything else returns generic 404
+    expressApp.use((_req, res) => {
+      res.status(404).end()
     })
 
     // Create HTTP server
@@ -256,21 +292,32 @@ export class RemoteServer {
     httpServer.on('upgrade', (request, socket, head) => {
       const url = new URL(request.url || '', `http://${request.headers.host}`)
 
-      // Auth check for WebSocket (timing-safe)
-      const tokenFromQuery = url.searchParams.get('token')
-      const authHeader = request.headers.authorization
-      const tokenFromHeader = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-      const tokenFromCookie = this.parseCookieToken(request.headers.cookie)
-      const providedToken = tokenFromQuery || tokenFromHeader || tokenFromCookie
+      // Verify session path
+      const expectedPrefix = `/s/${this.sessionPath}/api/terminal/`
+      if (!url.pathname.startsWith(expectedPrefix)) {
+        socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
+        socket.destroy()
+        return
+      }
 
-      if (!safeCompare(providedToken, this.token)) {
+      // Cookie-only auth for WebSocket
+      const pinFromCookie = this.parseCookiePin(request.headers.cookie)
+      if (!safeCompare(pinFromCookie, this.pin)) {
         socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
         socket.destroy()
         return
       }
 
-      // Parse path: /api/terminal/:winId/:sessionId (strict format)
-      const match = url.pathname.match(/^\/api\/terminal\/(\d+)\/(session-\d+)$/)
+      // Enforce connection limit
+      if (this.activeWsConnections >= MAX_WS_CONNECTIONS) {
+        socket.write('HTTP/1.1 429 Too Many Requests\r\n\r\n')
+        socket.destroy()
+        return
+      }
+
+      // Parse winId/sessionId from path after prefix
+      const remaining = url.pathname.slice(expectedPrefix.length)
+      const match = remaining.match(/^(\d+)\/(session-\d+)$/)
       if (!match) {
         socket.write('HTTP/1.1 404 Not Found\r\n\r\n')
         socket.destroy()
@@ -281,6 +328,9 @@ export class RemoteServer {
       const sessionId = match[2]
 
       this.wss!.handleUpgrade(request, socket, head, (ws) => {
+        this.activeWsConnections++
+        ws.on('close', () => { this.activeWsConnections-- })
+        ws.on('error', () => { this.activeWsConnections-- })
         this.handleTerminalConnection(ws, winId, sessionId)
       })
     })
@@ -290,7 +340,7 @@ export class RemoteServer {
       httpServer.listen(preferredPort, '127.0.0.1', () => {
         const addr = httpServer.address()
         this.port = typeof addr === 'object' && addr ? addr.port : null
-        console.log(`[RemoteServer] Listening on port ${this.port}`)
+        console.log(`[RemoteServer] Listening on port ${this.port}, session path: /s/${this.sessionPath}/`)
         resolve()
       })
       httpServer.on('error', reject)
@@ -385,7 +435,6 @@ export class RemoteServer {
       const parseUrl = (data: Buffer) => {
         if (resolved) return
         const text = data.toString()
-        // cloudflared outputs the URL to stderr in the format: https://xxx.trycloudflare.com
         const urlMatch = text.match(/(https:\/\/[a-z0-9-]+\.trycloudflare\.com)/)
         if (urlMatch) {
           resolved = true
@@ -427,7 +476,6 @@ export class RemoteServer {
   stop() {
     this.stopTunnel()
 
-    // Close all WebSocket connections
     if (this.wss) {
       for (const client of this.wss.clients) {
         client.close()
@@ -443,6 +491,9 @@ export class RemoteServer {
 
     this.app = null
     this.port = null
+    this.pin = null
+    this.sessionPath = null
+    this.activeWsConnections = 0
     console.log('[RemoteServer] Stopped')
   }
 
@@ -451,11 +502,8 @@ export class RemoteServer {
       running: this.server?.listening ?? false,
       port: this.port,
       tunnelUrl: this.tunnelUrl,
-      token: this.token,
+      pin: this.pin,
+      sessionPath: this.sessionPath,
     }
-  }
-
-  getToken(): string | null {
-    return this.token
   }
 }

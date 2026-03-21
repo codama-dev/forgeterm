@@ -131,7 +131,8 @@ export interface RemoteStatus {
   running: boolean
   port: number | null
   tunnelUrl: string | null
-  token: string | null
+  pin: string | null
+  sessionPath: string | null
 }
 
 export type CliStatus = 'not-setup' | 'connected' | 'error'

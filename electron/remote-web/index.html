@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>ForgeTerm Remote</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" integrity="sha384-tStR1zLfWgsiXCF3IgfB3lBa8KmBe/lG287CL9WCeKgQYcp1bjb4/+mwN6oti4Co" crossorigin="anonymous" referrerpolicy="no-referrer">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
   <div id="app">
@@ -16,7 +16,7 @@
       <div class="login-container">
         <div class="login-logo">ForgeTerm</div>
         <div class="login-subtitle">Remote Access</div>
-        <input type="password" id="token-input" placeholder="Enter access token" autocomplete="off" autofocus>
+        <input type="tel" id="pin-input" placeholder="Enter PIN" maxlength="4" inputmode="numeric" pattern="[0-9]*" autocomplete="off" autofocus>
         <button id="login-btn" class="btn-primary">Connect</button>
         <div id="login-error" class="error-text hidden"></div>
       </div>
@@ -62,6 +62,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js" integrity="sha384-J4qzUjBl1FxyLsl/kQPQIOeINsmp17OHYXDOMpMxlKX53ZfYsL+aWHpgArvOuof9" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js" integrity="sha384-XGqKrV8Jrukp1NITJbOEHwg01tNkuXr6uB6YEj69ebpYU3v7FvoGgEg23C1Gcehk" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.12.0/lib/addon-web-links.min.js" integrity="sha384-qRCjDpXBNYif7WxgGNS9nK3b8jeByXxOaG33yBbmRm6mBaYUEJNSEiWpyoEstjEp" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-  <script src="/static/app.js"></script>
+  <script src="static/app.js"></script>
 </body>
 </html>

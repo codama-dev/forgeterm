@@ -115,14 +115,16 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     terminal.open(containerRef.current)
 
     // GPU-accelerated rendering (falls back to default canvas if WebGL unavailable)
+    let webglAddon: WebglAddon | null = null
     try {
-      const webglAddon = new WebglAddon()
+      webglAddon = new WebglAddon()
       webglAddon.onContextLoss(() => {
-        webglAddon.dispose()
+        try { webglAddon?.dispose() } catch { /* already gone */ }
+        webglAddon = null
       })
       terminal.loadAddon(webglAddon)
     } catch {
-      // WebGL not available, default renderer is fine
+      webglAddon = null
     }
 
     // Fit after opening
@@ -259,6 +261,11 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       dataHandlers.delete(sessionId)
       if (resizeTimer) clearTimeout(resizeTimer)
       resizeObserver.disconnect()
+      // Dispose WebGL addon first to avoid _isDisposed crash during terminal teardown
+      if (webglAddon) {
+        try { webglAddon.dispose() } catch { /* already disposed */ }
+        webglAddon = null
+      }
       terminal.dispose()
       terminals.delete(sessionId)
       const actTimer = activityTimers.get(sessionId)

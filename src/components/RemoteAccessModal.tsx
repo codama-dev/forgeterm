@@ -21,10 +21,12 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
     return unsub
   }, [])
 
-  // Generate QR code when we have a full URL
   const tunnelUrl = status?.tunnelUrl
-  const token = status?.token
-  const fullUrl = tunnelUrl && token ? `${tunnelUrl}?token=${token}` : null
+  const pin = status?.pin
+  const sessionPath = status?.sessionPath
+  // PIN goes in the hash fragment - never sent to the server or logged by proxies
+  const fullUrl = tunnelUrl && sessionPath && pin ? `${tunnelUrl}/s/${sessionPath}/#${pin}` : null
+  const displayUrl = tunnelUrl && sessionPath ? `${tunnelUrl}/s/${sessionPath}/` : null
 
   useEffect(() => {
     if (!fullUrl) {
@@ -141,7 +143,7 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
                     </div>
                     <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                       <span style={{ fontSize: 16, width: 24, textAlign: 'center', flexShrink: 0 }}>3</span>
-                      <span>Scan the QR code or open the link on your phone</span>
+                      <span>Scan the QR code or enter the 4-digit PIN on your phone</span>
                     </div>
                   </div>
                 </div>
@@ -246,6 +248,52 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
                 )}
               </div>
 
+              {/* PIN display */}
+              {pin && (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  padding: '16px',
+                  background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  borderRadius: 8,
+                  marginBottom: 12,
+                }}>
+                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>
+                    Access PIN
+                  </div>
+                  <div style={{
+                    display: 'flex',
+                    gap: 8,
+                    cursor: 'pointer',
+                  }} onClick={() => handleCopy(pin, 'pin')}>
+                    {pin.split('').map((digit, i) => (
+                      <div key={i} style={{
+                        width: 40,
+                        height: 48,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: '#0f172a',
+                        borderRadius: 6,
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        fontSize: 24,
+                        fontWeight: 700,
+                        fontFamily: 'monospace',
+                        color: '#e2e8f0',
+                        letterSpacing: 0,
+                      }}>
+                        {digit}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 10, color: copied === 'pin' ? '#4ade80' : '#475569', marginTop: 6 }}>
+                    {copied === 'pin' ? 'Copied!' : 'Click to copy'}
+                  </div>
+                </div>
+              )}
+
               {/* QR Code */}
               {qrDataUrl && fullUrl && (
                 <div style={{
@@ -273,15 +321,15 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
                     />
                   </div>
                   <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center' }}>
-                    Scan with your phone camera
+                    Scan to connect instantly (includes PIN)
                   </div>
                 </div>
               )}
 
               {/* URL display */}
-              {tunnelUrl && (
+              {displayUrl && (
                 <div
-                  onClick={() => handleCopy(fullUrl || tunnelUrl, 'url')}
+                  onClick={() => handleCopy(fullUrl || displayUrl, 'url')}
                   style={{
                     background: '#0f172a',
                     borderRadius: 6,
@@ -298,7 +346,7 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
                     color: '#e2e8f0',
                     wordBreak: 'break-all',
                   }}>
-                    {tunnelUrl}
+                    {displayUrl}
                   </div>
                   <span style={{
                     position: 'absolute',
@@ -307,7 +355,7 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
                     fontSize: 9,
                     color: copied === 'url' ? '#4ade80' : '#475569',
                   }}>
-                    {copied === 'url' ? 'Copied!' : 'Click to copy URL with token'}
+                    {copied === 'url' ? 'Copied!' : 'Click to copy full URL'}
                   </span>
                 </div>
               )}

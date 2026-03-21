@@ -2,12 +2,7 @@
 (function () {
   'use strict';
 
-  // Check URL for token (from full URL copy)
-  const urlParams = new URLSearchParams(window.location.search);
-  const urlToken = urlParams.get('token');
-
   // State
-  let token = urlToken || localStorage.getItem('forgeterm_token') || '';
   let currentWindows = [];
   let currentWindowId = null;
   let currentSessionId = null;
@@ -15,6 +10,9 @@
   let term = null;
   let fitAddon = null;
   let resizeObserver = null;
+
+  // Derive base path from current URL (e.g., /s/abc123def456/)
+  const basePath = location.pathname.replace(/\/+$/, '');
 
   // DOM refs
   const views = {
@@ -25,7 +23,7 @@
   };
 
   const els = {
-    tokenInput: document.getElementById('token-input'),
+    pinInput: document.getElementById('pin-input'),
     loginBtn: document.getElementById('login-btn'),
     loginError: document.getElementById('login-error'),
     windowsList: document.getElementById('windows-list'),
@@ -50,40 +48,29 @@
   }
 
   // ---- API helpers ----
-  function apiUrl(path) {
-    return path;
-  }
-
-  function apiHeaders() {
-    return {
-      'Authorization': 'Bearer ' + token,
-      'Content-Type': 'application/json',
-    };
-  }
-
-  async function apiFetch(path, opts = {}) {
-    const res = await fetch(apiUrl(path), {
+  // All API calls use cookies for auth (HttpOnly cookie set by /api/auth)
+  async function apiFetch(apiPath, opts = {}) {
+    const res = await fetch(basePath + '/' + apiPath, {
       ...opts,
-      headers: { ...apiHeaders(), ...opts.headers },
+      headers: { 'Content-Type': 'application/json', ...opts.headers },
     });
     if (res.status === 401) {
-      logout();
+      showLoginView();
       throw new Error('Unauthorized');
     }
     return res.json();
   }
 
   // ---- Auth ----
-  async function tryLogin(t) {
-    token = t;
+  async function tryLogin(pin) {
     try {
-      // Server sets HttpOnly+Secure cookie on successful auth
-      await apiFetch('/api/auth');
-      localStorage.setItem('forgeterm_token', t);
-      // Clean token from URL if present
-      if (window.location.search.includes('token=')) {
-        window.history.replaceState({}, '', window.location.pathname);
-      }
+      const res = await fetch(basePath + '/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      });
+      if (!res.ok) return false;
+      // Cookie is set by the server, no need to store anything client-side
       await loadWindows();
       showView('windows');
       return true;
@@ -92,18 +79,16 @@
     }
   }
 
-  function logout() {
-    token = '';
-    localStorage.removeItem('forgeterm_token');
+  function showLoginView() {
     showView('login');
-    els.tokenInput.value = '';
+    els.pinInput.value = '';
     els.loginError.classList.add('hidden');
   }
 
   // ---- Windows list ----
   async function loadWindows() {
     try {
-      currentWindows = await apiFetch('/api/windows');
+      currentWindows = await apiFetch('api/windows');
       renderWindows();
     } catch (e) {
       console.error('Failed to load windows:', e);
@@ -177,7 +162,7 @@
 
   async function refreshSessions() {
     try {
-      currentWindows = await apiFetch('/api/windows');
+      currentWindows = await apiFetch('api/windows');
       const win = currentWindows.find(w => w.id === currentWindowId);
       if (win) {
         renderSessions(win.sessions);
@@ -193,10 +178,8 @@
     els.terminalTitle.textContent = sessionName;
     showView('terminal');
 
-    // Clean up previous terminal
     destroyTerminal();
 
-    // Create new xterm instance
     term = new Terminal({
       fontSize: 14,
       fontFamily: "'SF Mono', Menlo, Monaco, 'Courier New', monospace",
@@ -219,13 +202,11 @@
 
     term.open(els.terminalContainer);
 
-    // Small delay to ensure the container is laid out before fitting
     requestAnimationFrame(() => {
       fitAddon.fit();
       connectWebSocket();
     });
 
-    // Handle resize
     resizeObserver = new ResizeObserver(() => {
       if (fitAddon) {
         fitAddon.fit();
@@ -236,7 +217,6 @@
     });
     resizeObserver.observe(els.terminalContainer);
 
-    // Terminal input -> WebSocket
     term.onData(data => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'input', data }));
@@ -246,12 +226,12 @@
 
   function connectWebSocket() {
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${location.host}/api/terminal/${currentWindowId}/${currentSessionId}?token=${encodeURIComponent(token)}`;
+    // Cookie is sent automatically with the WebSocket handshake
+    const wsUrl = `${protocol}//${location.host}${basePath}/api/terminal/${currentWindowId}/${currentSessionId}`;
 
     ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      // Send initial size
       if (term && fitAddon) {
         fitAddon.fit();
         ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
@@ -272,15 +252,12 @@
     };
 
     ws.onclose = () => {
-      // Show disconnect message if terminal is still visible
       if (term && !views.terminal.classList.contains('hidden')) {
         term.write('\r\n\x1b[33m--- Disconnected ---\x1b[0m\r\n');
       }
     };
 
-    ws.onerror = () => {
-      // Error handling is done in onclose
-    };
+    ws.onerror = () => {};
   }
 
   function destroyTerminal() {
@@ -305,8 +282,7 @@
   async function restartSession() {
     if (!currentWindowId || !currentSessionId) return;
     try {
-      await apiFetch(`/api/sessions/${currentWindowId}/${currentSessionId}/restart`, { method: 'POST' });
-      // Reconnect WebSocket
+      await apiFetch(`api/sessions/${currentWindowId}/${currentSessionId}/restart`, { method: 'POST' });
       if (ws) ws.close();
       if (term) {
         term.clear();
@@ -321,7 +297,7 @@
   async function killSession() {
     if (!currentWindowId || !currentSessionId) return;
     try {
-      await apiFetch(`/api/sessions/${currentWindowId}/${currentSessionId}/kill`, { method: 'POST' });
+      await apiFetch(`api/sessions/${currentWindowId}/${currentSessionId}/kill`, { method: 'POST' });
     } catch (e) {
       console.error('Failed to kill session:', e);
     }
@@ -348,20 +324,20 @@
 
   // ---- Event listeners ----
   els.loginBtn.addEventListener('click', async () => {
-    const t = els.tokenInput.value.trim();
-    if (!t) return;
+    const pin = els.pinInput.value.trim();
+    if (!pin) return;
     els.loginBtn.disabled = true;
     els.loginBtn.textContent = 'Connecting...';
-    const ok = await tryLogin(t);
+    const ok = await tryLogin(pin);
     els.loginBtn.disabled = false;
     els.loginBtn.textContent = 'Connect';
     if (!ok) {
-      els.loginError.textContent = 'Invalid token';
+      els.loginError.textContent = 'Invalid PIN';
       els.loginError.classList.remove('hidden');
     }
   });
 
-  els.tokenInput.addEventListener('keydown', (e) => {
+  els.pinInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') els.loginBtn.click();
   });
 
@@ -384,11 +360,24 @@
 
   // ---- Init ----
   async function init() {
-    if (token) {
-      const ok = await tryLogin(token);
+    // Check URL hash for PIN (from QR code scan)
+    // Hash fragment is never sent to the server or logged by proxies
+    const hashPin = location.hash ? location.hash.slice(1) : '';
+    if (hashPin) {
+      // Clear hash immediately so PIN isn't visible in address bar
+      history.replaceState(null, '', location.pathname + location.search);
+      const ok = await tryLogin(hashPin);
       if (ok) return;
     }
-    showView('login');
+
+    // Try existing cookie by loading windows
+    try {
+      currentWindows = await apiFetch('api/windows');
+      renderWindows();
+      showView('windows');
+    } catch {
+      showView('login');
+    }
   }
 
   init();

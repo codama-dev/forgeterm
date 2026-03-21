@@ -12,7 +12,7 @@ export default defineConfig({
         vite: {
           build: {
             rollupOptions: {
-              external: ['node-pty', 'express', 'ws'],
+              external: ['node-pty', 'ws'],
             },
           },
         },

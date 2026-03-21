@@ -70,21 +70,31 @@ body {
   margin-bottom: 16px;
 }
 
-#token-input {
-  width: 100%;
-  max-width: 320px;
+#pin-input {
+  width: 160px;
   padding: 14px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-size: 16px;
+  font-size: 28px;
+  font-weight: 700;
+  font-family: 'SF Mono', Menlo, monospace;
+  text-align: center;
+  letter-spacing: 8px;
   outline: none;
   transition: border-color 0.2s;
 }
 
-#token-input:focus {
+#pin-input:focus {
   border-color: var(--accent);
+}
+
+#pin-input::placeholder {
+  font-size: 14px;
+  font-weight: 400;
+  letter-spacing: normal;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
 }
 
 .btn-primary {
