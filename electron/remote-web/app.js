@@ -360,16 +360,6 @@
 
   // ---- Init ----
   async function init() {
-    // Check URL hash for PIN (from QR code scan)
-    // Hash fragment is never sent to the server or logged by proxies
-    const hashPin = location.hash ? location.hash.slice(1) : '';
-    if (hashPin) {
-      // Clear hash immediately so PIN isn't visible in address bar
-      history.replaceState(null, '', location.pathname + location.search);
-      const ok = await tryLogin(hashPin);
-      if (ok) return;
-    }
-
     // Try existing cookie by loading windows
     try {
       currentWindows = await apiFetch('api/windows');

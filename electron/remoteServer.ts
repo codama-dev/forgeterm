@@ -173,6 +173,17 @@ export class RemoteServer {
       res.setHeader('X-Content-Type-Options', 'nosniff')
       res.setHeader('X-Frame-Options', 'DENY')
       res.setHeader('Referrer-Policy', 'no-referrer')
+      res.setHeader('Content-Security-Policy', [
+        "default-src 'self'",
+        "script-src 'self' https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "connect-src 'self' wss: ws:",
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+      ].join('; '))
       next()
     })
 
@@ -329,8 +340,12 @@ export class RemoteServer {
 
       this.wss!.handleUpgrade(request, socket, head, (ws) => {
         this.activeWsConnections++
-        ws.on('close', () => { this.activeWsConnections-- })
-        ws.on('error', () => { this.activeWsConnections-- })
+        let counted = true
+        const release = () => {
+          if (counted) { this.activeWsConnections--; counted = false }
+        }
+        ws.on('close', release)
+        ws.on('error', release)
         this.handleTerminalConnection(ws, winId, sessionId)
       })
     })
@@ -376,11 +391,18 @@ export class RemoteServer {
     // Forward WebSocket input to PTY
     ws.on('message', (raw) => {
       try {
-        const msg = JSON.parse(raw.toString())
+        // Reject oversized messages (max 64KB - generous for terminal input)
+        const rawStr = raw.toString()
+        if (rawStr.length > 65536) return
+        const msg = JSON.parse(rawStr)
         if (msg.type === 'input' && typeof msg.data === 'string') {
           state.ptyManager.write(sessionId, msg.data)
-        } else if (msg.type === 'resize' && msg.cols && msg.rows) {
-          state.ptyManager.resize(sessionId, msg.cols, msg.rows)
+        } else if (msg.type === 'resize') {
+          const cols = Number(msg.cols)
+          const rows = Number(msg.rows)
+          if (cols > 0 && cols <= 500 && rows > 0 && rows <= 200) {
+            state.ptyManager.resize(sessionId, cols, rows)
+          }
         }
       } catch { /* ignore bad messages */ }
     })
