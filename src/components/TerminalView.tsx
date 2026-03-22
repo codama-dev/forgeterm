@@ -3,6 +3,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
+import { SearchAddon } from '@xterm/addon-search'
 import '@xterm/xterm/css/xterm.css'
 import type { ForgeTermConfig } from '../../shared/types'
 import { useSessionStore } from '../store/sessionStore'
@@ -19,7 +20,7 @@ interface DropMenuState {
   files: string[]
 }
 
-const terminals = new Map<string, { terminal: Terminal; fitAddon: FitAddon }>()
+const terminals = new Map<string, { terminal: Terminal; fitAddon: FitAddon; searchAddon: SearchAddon }>()
 
 // Activity tracking: after 5s of silence, transition from 'working' to 'unread'
 const ACTIVITY_TIMEOUT_MS = 5000
@@ -28,6 +29,9 @@ const activityTimers = new Map<string, ReturnType<typeof setTimeout>>()
 // Single shared data listener - dispatches to the right terminal by session ID
 const dataHandlers = new Map<string, (data: string) => void>()
 let unsubSharedDataListener: (() => void) | null = null
+
+// Search toggle registry - allows App to trigger search via Cmd+F
+const searchToggles = new Map<string, () => void>()
 
 function ensureSharedDataListener() {
   if (unsubSharedDataListener) return
@@ -84,6 +88,9 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
   const [isScrolledUp, setIsScrolledUp] = useState(false)
   const [isDraggingOver, setIsDraggingOver] = useState(false)
   const [dropMenu, setDropMenu] = useState<DropMenuState | null>(null)
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
   const isAtBottomRef = useRef(true)
   const dragCountRef = useRef(0)
   configRef.current = config
@@ -105,6 +112,9 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
 
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
+
+    const searchAddon = new SearchAddon()
+    terminal.loadAddon(searchAddon)
 
     // Clickable URLs - opens in default browser
     const webLinksAddon = new WebLinksAddon((_event, uri) => {
@@ -243,6 +253,17 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     container.addEventListener('dragleave', handleDragLeave)
     container.addEventListener('drop', handleDrop)
 
+    // Detect user scroll-up via wheel events to reliably cancel stick-to-bottom.
+    // Wheel events only fire on user input (not programmatic scrolls), so this
+    // prevents the auto-scroll from fighting the user during rapid output.
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0 && isAtBottomRef.current) {
+        isAtBottomRef.current = false
+        setIsScrolledUp(true)
+      }
+    }
+    container.addEventListener('wheel', handleWheel, { passive: true })
+
     // Track scroll position to show/hide scroll-to-bottom button
     const scrollDisposable = terminal.onScroll(() => {
       const isAtBottom = terminal.buffer.active.viewportY >= terminal.buffer.active.baseY
@@ -250,9 +271,10 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       setIsScrolledUp(!isAtBottom)
     })
 
-    terminals.set(sessionId, { terminal, fitAddon })
+    terminals.set(sessionId, { terminal, fitAddon, searchAddon })
 
     cleanupRef.current = () => {
+      container.removeEventListener('wheel', handleWheel)
       container.removeEventListener('dragenter', handleDragEnter)
       container.removeEventListener('dragover', handleDragOver)
       container.removeEventListener('dragleave', handleDragLeave)
@@ -296,6 +318,8 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
       if (entry) {
         requestAnimationFrame(() => {
           entry.fitAddon.fit()
+          // Force full re-render - needed when transitioning from display:none
+          entry.terminal.refresh(0, entry.terminal.rows - 1)
           window.forgeterm.resizeSession(sessionId, entry.terminal.cols, entry.terminal.rows)
           entry.terminal.scrollToBottom()
           isAtBottomRef.current = true
@@ -320,15 +344,23 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     }
   }, [config, sessionId])
 
-  // Dismiss drop menu on Escape
+  // Dismiss drop menu or search on Escape
   useEffect(() => {
-    if (!dropMenu) return
+    if (!dropMenu && !showSearch) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setDropMenu(null)
+      if (e.key === 'Escape') {
+        setDropMenu(null)
+        if (showSearch) {
+          setShowSearch(false)
+          const entry = terminals.get(sessionId)
+          entry?.searchAddon.clearDecorations()
+          entry?.terminal.focus()
+        }
+      }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [dropMenu])
+  }, [dropMenu, showSearch, sessionId])
 
   const handleScrollToBottom = useCallback(() => {
     const entry = terminals.get(sessionId)
@@ -348,6 +380,88 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     }
   }, [sessionId])
 
+  const handleSearchChange = useCallback((query: string) => {
+    setSearchQuery(query)
+    const entry = terminals.get(sessionId)
+    if (!entry) return
+    if (query) {
+      entry.searchAddon.findNext(query, { regex: false, caseSensitive: false, decorations: {
+        matchBackground: '#facc1540',
+        matchBorder: '#facc1580',
+        activeMatchBackground: '#facc15',
+        activeMatchBorder: '#facc15',
+        activeMatchColorOverviewRuler: '#facc15',
+        matchOverviewRuler: '#facc1560',
+      }})
+    } else {
+      entry.searchAddon.clearDecorations()
+    }
+  }, [sessionId])
+
+  const handleSearchNext = useCallback(() => {
+    const entry = terminals.get(sessionId)
+    if (entry && searchQuery) {
+      entry.searchAddon.findNext(searchQuery, { regex: false, caseSensitive: false, decorations: {
+        matchBackground: '#facc1540',
+        matchBorder: '#facc1580',
+        activeMatchBackground: '#facc15',
+        activeMatchBorder: '#facc15',
+        activeMatchColorOverviewRuler: '#facc15',
+        matchOverviewRuler: '#facc1560',
+      }})
+    }
+  }, [sessionId, searchQuery])
+
+  const handleSearchPrev = useCallback(() => {
+    const entry = terminals.get(sessionId)
+    if (entry && searchQuery) {
+      entry.searchAddon.findPrevious(searchQuery, { regex: false, caseSensitive: false, decorations: {
+        matchBackground: '#facc1540',
+        matchBorder: '#facc1580',
+        activeMatchBackground: '#facc15',
+        activeMatchBorder: '#facc15',
+        activeMatchColorOverviewRuler: '#facc15',
+        matchOverviewRuler: '#facc1560',
+      }})
+    }
+  }, [sessionId, searchQuery])
+
+  const handleCloseSearch = useCallback(() => {
+    setShowSearch(false)
+    const entry = terminals.get(sessionId)
+    if (entry) {
+      entry.searchAddon.clearDecorations()
+      entry.terminal.focus()
+    }
+  }, [sessionId])
+
+  // Expose toggle for Cmd+F from App
+  useEffect(() => {
+    if (active) {
+      searchToggles.set(sessionId, () => {
+        setShowSearch(prev => {
+          if (prev) {
+            const entry = terminals.get(sessionId)
+            entry?.searchAddon.clearDecorations()
+            entry?.terminal.focus()
+            return false
+          }
+          return true
+        })
+      })
+    }
+    return () => {
+      if (!active) searchToggles.delete(sessionId)
+    }
+  }, [active, sessionId])
+
+  // Focus search input when shown
+  useEffect(() => {
+    if (showSearch) {
+      requestAnimationFrame(() => searchInputRef.current?.focus())
+    }
+  }, [showSearch])
+
   const handleDropAction = useCallback((action: 'path' | 'content' | 'copy') => {
     if (!dropMenu) return
     executeDrop(sessionId, action, dropMenu.files)
@@ -357,6 +471,41 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
 
   return (
     <div className="terminal-wrapper" style={{ display: active ? 'block' : 'none' }}>
+      {active && showSearch && (
+        <div className="terminal-search-bar">
+          <input
+            ref={searchInputRef}
+            className="terminal-search-input"
+            type="text"
+            placeholder="Find..."
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.shiftKey ? handleSearchPrev() : handleSearchNext()
+              }
+              if (e.key === 'Escape') {
+                handleCloseSearch()
+              }
+            }}
+          />
+          <button className="terminal-search-nav-btn" onClick={handleSearchPrev} title="Previous (Shift+Enter)">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 2L2 6l4 4M2 6h8" />
+            </svg>
+          </button>
+          <button className="terminal-search-nav-btn" onClick={handleSearchNext} title="Next (Enter)">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6 10l4-4-4-4M10 6H2" />
+            </svg>
+          </button>
+          <button className="terminal-search-nav-btn" onClick={handleCloseSearch} title="Close (Esc)">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2 2l8 8M10 2l-8 8" />
+            </svg>
+          </button>
+        </div>
+      )}
       <div ref={containerRef} className="terminal-container" />
       {active && isDraggingOver && (
         <div className="terminal-drag-overlay">
@@ -402,7 +551,7 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
           <button
             className="terminal-scroll-btn"
             onClick={handleScrollToTop}
-            title="Scroll to top"
+            title="Scroll to top (Cmd+Up)"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 2.5L2.5 7.5M7 2.5L11.5 7.5M7 2.5V12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -411,12 +560,13 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
           <button
             className="terminal-scroll-btn terminal-stick-btn"
             onClick={handleScrollToBottom}
-            title="Stick to bottom"
+            title="Follow output (Cmd+Down)"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M7 10L3.5 6.5M7 10L10.5 6.5M7 10V2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
               <line x1="3" y1="12.5" x2="11" y2="12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
             </svg>
+            <span className="stick-label">Follow</span>
           </button>
         </div>
       )}
@@ -450,4 +600,8 @@ export function selectAllTerminal(sessionId: string) {
   if (entry) {
     entry.terminal.selectAll()
   }
+}
+
+export function toggleTerminalSearch(sessionId: string) {
+  searchToggles.get(sessionId)?.()
 }

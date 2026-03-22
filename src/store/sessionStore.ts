@@ -33,11 +33,14 @@ export const useSessionStore = create<SessionStore>((set) => ({
 
   removeSession: (id) =>
     set((state) => {
+      const idx = state.sessions.findIndex((s) => s.id === id)
       const sessions = state.sessions.filter((s) => s.id !== id)
-      const activeSessionId =
-        state.activeSessionId === id
-          ? sessions[0]?.id ?? null
-          : state.activeSessionId
+      let activeSessionId = state.activeSessionId
+      if (activeSessionId === id) {
+        // Pick adjacent session: prefer next, fall back to previous
+        const nextIdx = Math.min(idx, sessions.length - 1)
+        activeSessionId = nextIdx >= 0 ? sessions[nextIdx].id : null
+      }
       return { sessions, activeSessionId }
     }),
 

@@ -14,13 +14,14 @@ A terminal emulator built for multi-project workflows. Open an entire workspace 
 | ⌘P | Switch project |
 | ⌘O | Open folder |
 | ⌘B | Toggle sidebar |
+| ⌘F | Find in terminal |
 | ⌘K | Clear terminal |
 | ⌘↓ | Scroll to bottom |
 | ⌘↑ | Scroll to top |
 | ⌘1-9 | Switch to session |
 | ⌘⇧= | Lighten theme |
 | ⌘⇧- | Darken theme |
-| ⌘W | Close window |
+| ⌘W | Close session |
 
 ## Features
 

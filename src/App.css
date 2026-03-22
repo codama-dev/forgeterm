@@ -633,6 +633,64 @@
   height: 100%;
 }
 
+/* Terminal search bar */
+.terminal-search-bar {
+  position: absolute;
+  top: 6px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  z-index: 10;
+  background: rgba(30, 41, 59, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 3px 4px;
+  animation: scroll-controls-fade-in 0.12s ease-out;
+}
+
+.terminal-search-input {
+  width: 180px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  font-size: 12px;
+  padding: 0 8px;
+  outline: none;
+}
+
+.terminal-search-input::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.terminal-search-input:focus {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.terminal-search-nav-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.1s, background 0.1s;
+}
+
+.terminal-search-nav-btn:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Scroll controls */
 .terminal-scroll-controls {
   position: absolute;
   right: 16px;
@@ -645,7 +703,6 @@
 }
 
 .terminal-scroll-btn {
-  width: 28px;
   height: 28px;
   border-radius: 6px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -656,7 +713,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  gap: 4px;
+  padding: 0 6px;
   transition: color 0.15s, background 0.15s, border-color 0.15s;
 }
 
@@ -668,11 +726,19 @@
 
 .terminal-stick-btn {
   color: var(--accent-color, rgba(255, 255, 255, 0.5));
+  border-color: var(--accent-color, rgba(255, 255, 255, 0.1));
+  padding: 0 10px 0 6px;
 }
 
 .terminal-stick-btn:hover {
   color: var(--accent-color, rgba(255, 255, 255, 0.9));
   border-color: var(--accent-color, rgba(255, 255, 255, 0.2));
+}
+
+.stick-label {
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 @keyframes scroll-controls-fade-in {

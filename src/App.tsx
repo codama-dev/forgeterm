@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Sidebar } from './components/Sidebar'
-import { TerminalView, clearTerminal, scrollTerminalToTop, scrollTerminalToBottom, selectAllTerminal } from './components/TerminalView'
+import { TerminalView, clearTerminal, scrollTerminalToTop, scrollTerminalToBottom, selectAllTerminal, toggleTerminalSearch } from './components/TerminalView'
 import { NewSessionModal } from './components/NewSessionModal'
 import { ThemeEditor } from './components/ThemeEditor'
 import { ProjectSettings } from './components/ProjectSettings'
@@ -18,7 +18,7 @@ import './App.css'
 type SidebarMode = 'full' | 'compact' | 'hidden'
 
 function App() {
-  const { sessions, activeSessionId, addSession, setRunning, setActive } = useSessionStore()
+  const { sessions, activeSessionId, addSession, setRunning, setActive, removeSession } = useSessionStore()
   const [config, setConfig] = useState<ForgeTermConfig | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [showThemeEditor, setShowThemeEditor] = useState(false)
@@ -288,6 +288,24 @@ function App() {
         }
       }
 
+      // Cmd+F: search in terminal
+      if (mod && !e.shiftKey && e.key === 'f') {
+        e.preventDefault()
+        if (activeSessionId) {
+          toggleTerminalSearch(activeSessionId)
+        }
+      }
+
+      // Cmd+W: delete active session
+      if (mod && !e.shiftKey && e.key === 'w') {
+        e.preventDefault()
+        const store = useSessionStore.getState()
+        if (store.activeSessionId) {
+          window.forgeterm.killSession(store.activeSessionId)
+          removeSession(store.activeSessionId)
+        }
+      }
+
       // Cmd+K: clear terminal
       if (mod && e.key === 'k') {
         e.preventDefault()
@@ -348,7 +366,7 @@ function App() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [activeSessionId, setActive, cycleSidebarMode, adjustCurrentThemeBrightness])
+  }, [activeSessionId, setActive, removeSession, cycleSidebarMode, adjustCurrentThemeBrightness])
 
   const handleNewSession = useCallback(async (name: string, command?: string, addToStartup?: boolean) => {
     setShowModal(false)
