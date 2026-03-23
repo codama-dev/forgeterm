@@ -670,6 +670,14 @@
   background: rgba(255, 255, 255, 0.12);
 }
 
+.terminal-search-count {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  white-space: nowrap;
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+
 .terminal-search-nav-btn {
   width: 24px;
   height: 24px;

@@ -5,7 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws'
 import path from 'node:path'
 import fs from 'node:fs'
 import crypto from 'node:crypto'
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -50,9 +50,49 @@ export class RemoteServer {
   private authFailuresPerIp = new Map<string, { count: number; firstAt: number }>()
   private globalAuthFailures = { count: 0, firstAt: 0 }
   private activeWsConnections = 0
+  private tunnelError: string | null = null
+  private tunnelLogs: string[] = []
+  private static readonly MAX_LOGS = 200
 
   constructor(options: RemoteServerOptions) {
     this.options = options
+  }
+
+  private addLog(message: string) {
+    const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false })
+    this.tunnelLogs.push(`[${timestamp}] ${message}`)
+    if (this.tunnelLogs.length > RemoteServer.MAX_LOGS) {
+      this.tunnelLogs = this.tunnelLogs.slice(-RemoteServer.MAX_LOGS)
+    }
+  }
+
+  private resolveCloudflaredPath(): string | null {
+    // 1. Check common Homebrew/system locations directly
+    const candidates = [
+      '/opt/homebrew/bin/cloudflared',
+      '/usr/local/bin/cloudflared',
+      '/usr/bin/cloudflared',
+    ]
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        this.addLog(`Found cloudflared at ${p}`)
+        return p
+      }
+    }
+    // 2. Try 'which' with augmented PATH
+    try {
+      const result = execFileSync('which', ['cloudflared'], {
+        encoding: 'utf-8',
+        env: { ...process.env, PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin` },
+        timeout: 3000,
+      }).trim()
+      if (result && fs.existsSync(result)) {
+        this.addLog(`Found cloudflared via which: ${result}`)
+        return result
+      }
+    } catch {}
+    this.addLog('cloudflared not found in any known location')
+    return null
   }
 
   private generatePin(): string {
@@ -432,15 +472,48 @@ export class RemoteServer {
     if (!this.port) return null
     if (this.tunnelProcess) return this.tunnelUrl
 
+    this.tunnelError = null
+    this.tunnelLogs = []
+
+    // Resolve cloudflared binary
+    const cloudflaredPath = this.resolveCloudflaredPath()
+    if (!cloudflaredPath) {
+      this.tunnelError = 'cloudflared not found. Install it: brew install cloudflared'
+      this.addLog('ERROR: ' + this.tunnelError)
+      return null
+    }
+
+    // Try up to 2 attempts (initial + 1 retry)
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (attempt > 1) {
+        this.addLog(`Retry attempt ${attempt}...`)
+        await new Promise((r) => setTimeout(r, 2000))
+      }
+
+      const result = await this.attemptTunnel(cloudflaredPath)
+      if (result) return result
+
+      // Don't retry if cloudflared crashed immediately (likely a config/binary issue)
+      if ((this.tunnelError as string | null)?.includes('exited immediately')) break
+    }
+
+    return null
+  }
+
+  private attemptTunnel(cloudflaredPath: string): Promise<string | null> {
     return new Promise((resolve) => {
       const args = ['tunnel', '--url', `http://127.0.0.1:${this.port}`, '--no-autoupdate']
+      this.addLog(`Starting: ${cloudflaredPath} ${args.join(' ')}`)
 
       try {
-        this.tunnelProcess = spawn('cloudflared', args, {
+        this.tunnelProcess = spawn(cloudflaredPath, args, {
           stdio: ['ignore', 'pipe', 'pipe'],
         })
-      } catch {
-        console.error('[RemoteServer] Failed to spawn cloudflared - is it installed?')
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        this.tunnelError = `Failed to launch cloudflared: ${msg}`
+        this.addLog('ERROR: ' + this.tunnelError)
+        console.error('[RemoteServer]', this.tunnelError)
         resolve(null)
         return
       }
@@ -449,46 +522,76 @@ export class RemoteServer {
       const timeout = setTimeout(() => {
         if (!resolved) {
           resolved = true
-          console.error('[RemoteServer] Timed out waiting for cloudflared tunnel URL')
+          this.tunnelError = 'Timed out waiting for tunnel URL (30s). Check logs for details.'
+          this.addLog('ERROR: ' + this.tunnelError)
+          console.error('[RemoteServer]', this.tunnelError)
+          // Kill the timed-out process
+          if (this.tunnelProcess) {
+            this.tunnelProcess.kill()
+            this.tunnelProcess = null
+          }
           resolve(null)
         }
-      }, 15000)
+      }, 30000)
 
-      const parseUrl = (data: Buffer) => {
+      const handleOutput = (data: Buffer) => {
+        const text = data.toString().trim()
+        if (!text) return
+        // Log each line
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim()
+          if (trimmed) this.addLog(trimmed)
+        }
         if (resolved) return
-        const text = data.toString()
         const urlMatch = text.match(/(https:\/\/[a-z0-9-]+\.trycloudflare\.com)/)
         if (urlMatch) {
           resolved = true
           clearTimeout(timeout)
           this.tunnelUrl = urlMatch[1]
+          this.tunnelError = null
+          this.addLog(`Tunnel established: ${this.tunnelUrl}`)
           console.log(`[RemoteServer] Tunnel URL: ${this.tunnelUrl}`)
           resolve(this.tunnelUrl)
         }
       }
 
-      this.tunnelProcess.stdout?.on('data', parseUrl)
-      this.tunnelProcess.stderr?.on('data', parseUrl)
+      this.tunnelProcess.stdout?.on('data', handleOutput)
+      this.tunnelProcess.stderr?.on('data', handleOutput)
 
       this.tunnelProcess.on('error', (err) => {
+        this.addLog(`Process error: ${err.message}`)
         console.error('[RemoteServer] cloudflared error:', err.message)
         if (!resolved) {
           resolved = true
           clearTimeout(timeout)
+          this.tunnelError = `cloudflared error: ${err.message}`
           resolve(null)
         }
       })
 
       this.tunnelProcess.on('exit', (code) => {
+        this.addLog(`Process exited with code ${code}`)
         console.log(`[RemoteServer] cloudflared exited with code ${code}`)
         this.tunnelProcess = null
-        this.tunnelUrl = null
+        if (!resolved) {
+          resolved = true
+          clearTimeout(timeout)
+          this.tunnelError = code !== 0
+            ? `cloudflared exited immediately with code ${code}. Check logs for details.`
+            : 'cloudflared exited unexpectedly'
+          resolve(null)
+        } else {
+          // Tunnel was running and then exited - update state
+          this.tunnelUrl = null
+          this.tunnelError = `Tunnel disconnected (exit code ${code})`
+        }
       })
     })
   }
 
   stopTunnel() {
     if (this.tunnelProcess) {
+      this.addLog('Stopping tunnel...')
       this.tunnelProcess.kill()
       this.tunnelProcess = null
       this.tunnelUrl = null
@@ -516,6 +619,8 @@ export class RemoteServer {
     this.pin = null
     this.sessionPath = null
     this.activeWsConnections = 0
+    this.tunnelError = null
+    this.tunnelLogs = []
     console.log('[RemoteServer] Stopped')
   }
 
@@ -526,6 +631,8 @@ export class RemoteServer {
       tunnelUrl: this.tunnelUrl,
       pin: this.pin,
       sessionPath: this.sessionPath,
+      tunnelError: this.tunnelError,
+      tunnelLogs: [...this.tunnelLogs],
     }
   }
 }

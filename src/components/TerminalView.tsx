@@ -90,6 +90,7 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
   const [dropMenu, setDropMenu] = useState<DropMenuState | null>(null)
   const [showSearch, setShowSearch] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<{ index: number; count: number } | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const isAtBottomRef = useRef(true)
   const dragCountRef = useRef(0)
@@ -380,54 +381,45 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     }
   }, [sessionId])
 
+  const searchDecorations = {
+    matchBackground: '#facc1540',
+    matchBorder: '#facc1580',
+    activeMatchBackground: '#facc15',
+    activeMatchBorder: '#facc15',
+    activeMatchColorOverviewRuler: '#facc15',
+    matchOverviewRuler: '#facc1560',
+  }
+
   const handleSearchChange = useCallback((query: string) => {
     setSearchQuery(query)
     const entry = terminals.get(sessionId)
     if (!entry) return
     if (query) {
-      entry.searchAddon.findNext(query, { regex: false, caseSensitive: false, decorations: {
-        matchBackground: '#facc1540',
-        matchBorder: '#facc1580',
-        activeMatchBackground: '#facc15',
-        activeMatchBorder: '#facc15',
-        activeMatchColorOverviewRuler: '#facc15',
-        matchOverviewRuler: '#facc1560',
-      }})
+      // Start from bottom (most recent output) so latest matches show first
+      entry.searchAddon.findPrevious(query, { regex: false, caseSensitive: false, decorations: searchDecorations })
     } else {
       entry.searchAddon.clearDecorations()
+      setSearchResults(null)
     }
   }, [sessionId])
 
   const handleSearchNext = useCallback(() => {
     const entry = terminals.get(sessionId)
     if (entry && searchQuery) {
-      entry.searchAddon.findNext(searchQuery, { regex: false, caseSensitive: false, decorations: {
-        matchBackground: '#facc1540',
-        matchBorder: '#facc1580',
-        activeMatchBackground: '#facc15',
-        activeMatchBorder: '#facc15',
-        activeMatchColorOverviewRuler: '#facc15',
-        matchOverviewRuler: '#facc1560',
-      }})
+      entry.searchAddon.findNext(searchQuery, { regex: false, caseSensitive: false, decorations: searchDecorations })
     }
   }, [sessionId, searchQuery])
 
   const handleSearchPrev = useCallback(() => {
     const entry = terminals.get(sessionId)
     if (entry && searchQuery) {
-      entry.searchAddon.findPrevious(searchQuery, { regex: false, caseSensitive: false, decorations: {
-        matchBackground: '#facc1540',
-        matchBorder: '#facc1580',
-        activeMatchBackground: '#facc15',
-        activeMatchBorder: '#facc15',
-        activeMatchColorOverviewRuler: '#facc15',
-        matchOverviewRuler: '#facc1560',
-      }})
+      entry.searchAddon.findPrevious(searchQuery, { regex: false, caseSensitive: false, decorations: searchDecorations })
     }
   }, [sessionId, searchQuery])
 
   const handleCloseSearch = useCallback(() => {
     setShowSearch(false)
+    setSearchResults(null)
     const entry = terminals.get(sessionId)
     if (entry) {
       entry.searchAddon.clearDecorations()
@@ -455,12 +447,25 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
     }
   }, [active, sessionId])
 
-  // Focus search input when shown
+  // Focus search input when shown + subscribe to result count changes
   useEffect(() => {
     if (showSearch) {
       requestAnimationFrame(() => searchInputRef.current?.focus())
+      const entry = terminals.get(sessionId)
+      if (entry) {
+        const dispose = entry.searchAddon.onDidChangeResults((e) => {
+          if (e.resultCount === 0 && !searchQuery) {
+            setSearchResults(null)
+          } else {
+            setSearchResults({ index: e.resultIndex, count: e.resultCount })
+          }
+        })
+        return () => dispose.dispose()
+      }
+    } else {
+      setSearchResults(null)
     }
-  }, [showSearch])
+  }, [showSearch, sessionId])
 
   const handleDropAction = useCallback((action: 'path' | 'content' | 'copy') => {
     if (!dropMenu) return
@@ -489,6 +494,15 @@ export function TerminalView({ sessionId, active, config }: TerminalViewProps) {
               }
             }}
           />
+          {searchQuery && searchResults != null && (
+            <span className="terminal-search-count" style={{
+              color: searchResults.count === 0 ? '#f87171' : undefined,
+            }}>
+              {searchResults.count === 0
+                ? 'No results'
+                : `${searchResults.index + 1} of ${searchResults.count}`}
+            </span>
+          )}
           <button className="terminal-search-nav-btn" onClick={handleSearchPrev} title="Previous (Shift+Enter)">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 2L2 6l4 4M2 6h8" />

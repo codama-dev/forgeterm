@@ -14,6 +14,7 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [showLogs, setShowLogs] = useState(false)
 
   useEffect(() => {
     window.forgeterm.getRemoteStatus().then(setStatus)
@@ -42,11 +43,13 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
   const handleStart = useCallback(async () => {
     setStarting(true)
     setError(null)
+    setShowLogs(false)
     try {
       const s = await window.forgeterm.startRemoteAccess()
       setStatus(s)
       if (!s.tunnelUrl) {
-        setError('Tunnel failed to start. Is cloudflared installed? (brew install cloudflared)')
+        setError(s.tunnelError || 'Tunnel failed to start')
+        setShowLogs(true)
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to start')
@@ -369,12 +372,11 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
                   marginBottom: 12,
                   lineHeight: 1.5,
                 }}>
-                  Server is running on port {status?.port} but the Cloudflare tunnel could not start.
-                  Install cloudflared: <code style={{ color: '#fbbf24' }}>brew install cloudflared</code>
+                  {status?.tunnelError || 'Tunnel failed to start'}
                 </div>
               )}
 
-              {error && (
+              {error && !status?.tunnelError && (
                 <div style={{
                   background: 'rgba(248,113,113,0.1)',
                   border: '1px solid rgba(248,113,113,0.2)',
@@ -385,6 +387,63 @@ export function RemoteAccessModal({ accentColor, onClose }: RemoteAccessModalPro
                   marginBottom: 12,
                 }}>
                   {error}
+                </div>
+              )}
+
+              {/* Tunnel logs */}
+              {status?.tunnelLogs && status.tunnelLogs.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <button
+                    onClick={() => setShowLogs((v) => !v)}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      padding: 0,
+                      fontSize: 11,
+                      color: '#64748b',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      marginBottom: showLogs ? 6 : 0,
+                    }}
+                  >
+                    <span style={{
+                      display: 'inline-block',
+                      transform: showLogs ? 'rotate(90deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.15s',
+                      fontSize: 9,
+                    }}>
+                      &#9654;
+                    </span>
+                    Tunnel logs ({status.tunnelLogs.length})
+                  </button>
+                  {showLogs && (
+                    <div style={{
+                      background: '#0f172a',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: 6,
+                      padding: '8px 10px',
+                      maxHeight: 160,
+                      overflowY: 'auto',
+                      fontFamily: 'monospace',
+                      fontSize: 10,
+                      lineHeight: 1.6,
+                      color: '#94a3b8',
+                      whiteSpace: 'pre-wrap',
+                      wordBreak: 'break-all',
+                    }}>
+                      {status.tunnelLogs.map((line, i) => (
+                        <div key={i} style={{
+                          color: line.includes('ERROR') ? '#f87171' :
+                                 line.includes('Tunnel established') ? '#4ade80' :
+                                 '#94a3b8',
+                        }}>
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 

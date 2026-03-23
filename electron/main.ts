@@ -19,6 +19,17 @@ app.commandLine.appendSwitch('remote-debugging-port', '9222')
 
 process.env.APP_ROOT = path.join(__dirname, '..')
 
+// Electron apps launched from Dock/Finder get a minimal PATH.
+// Augment it so spawned processes (cloudflared, etc.) are found.
+{
+  const extraPaths = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']
+  const currentPath = process.env.PATH || ''
+  const missing = extraPaths.filter((p) => !currentPath.split(':').includes(p))
+  if (missing.length) {
+    process.env.PATH = `${currentPath}:${missing.join(':')}`
+  }
+}
+
 export const VITE_DEV_SERVER_URL = process.env['VITE_DEV_SERVER_URL']
 export const MAIN_DIST = path.join(process.env.APP_ROOT, 'dist-electron')
 export const RENDERER_DIST = path.join(process.env.APP_ROOT, 'dist')
@@ -704,58 +715,103 @@ function updateTrayMenu() {
   if (!tray) return
 
   const menuItems: Electron.MenuItemConstructorOptions[] = []
+  const workspaces = loadWorkspaces()
 
-  for (const [winId, info] of windowActivities) {
-    const win = BrowserWindow.fromId(winId)
-    if (!win || win.isDestroyed()) continue
-
-    const hasWorking = info.sessions.some((s) => s.status === 'working')
-    const hasUnread = info.sessions.some((s) => s.status === 'unread')
-    const statusPrefix = hasWorking ? '\u{1F7E2} ' : hasUnread ? '\u{1F7E1} ' : ''
-
-    menuItems.push({
-      label: `${statusPrefix}${info.projectName}`,
-      click: () => {
-        if (win.isMinimized()) win.restore()
-        win.focus()
-      },
-    })
-
-    for (const session of info.sessions) {
-      const dot = session.status === 'working' ? '  \u25CF ' :
-                  session.status === 'unread' ? '  \u25C9 ' :
-                  '  \u25CB '
-      menuItems.push({
-        label: `${dot}${session.sessionName}`,
-        click: () => {
-          if (win.isMinimized()) win.restore()
-          win.focus()
-          win.webContents.send('notification:focus-session', session.sessionId)
-        },
-      })
+  // Map project paths to their first workspace
+  const pathToWorkspace = new Map<string, Workspace>()
+  for (const ws of workspaces) {
+    for (const p of ws.projects) {
+      if (!pathToWorkspace.has(p)) pathToWorkspace.set(p, ws)
     }
-
-    menuItems.push({ type: 'separator' })
   }
 
-  // If no activity reports yet, show open windows
-  if (menuItems.length === 0) {
-    for (const [winId, state] of windowStates) {
-      const win = BrowserWindow.fromId(winId)
-      if (!win || win.isDestroyed()) continue
+  // Group open windows by workspace vs standalone
+  const workspaceWindowMap = new Map<string, number[]>()
+  const standaloneWindows: number[] = []
+
+  for (const [winId] of windowStates) {
+    const win = BrowserWindow.fromId(winId)
+    if (!win || win.isDestroyed()) continue
+    const state = windowStates.get(winId)!
+    const ws = pathToWorkspace.get(state.projectPath)
+    if (ws) {
+      const list = workspaceWindowMap.get(ws.name) || []
+      list.push(winId)
+      workspaceWindowMap.set(ws.name, list)
+    } else {
+      standaloneWindows.push(winId)
+    }
+  }
+
+  // Helper: add project + session items for one window
+  const addProjectItems = (winId: number, indent: string) => {
+    const win = BrowserWindow.fromId(winId)
+    if (!win || win.isDestroyed()) return
+    const state = windowStates.get(winId)
+    const activity = windowActivities.get(winId)
+
+    if (activity) {
+      const hasWorking = activity.sessions.some((s) => s.status === 'working')
+      const hasUnread = activity.sessions.some((s) => s.status === 'unread')
+      const statusPrefix = hasWorking ? '\u{1F7E2} ' : hasUnread ? '\u{1F7E1} ' : ''
+      menuItems.push({
+        label: `${indent}${statusPrefix}${activity.projectName}`,
+        click: () => { if (win.isMinimized()) win.restore(); win.focus() },
+      })
+      for (const session of activity.sessions) {
+        const dot = session.status === 'working' ? '\u25CF' :
+                    session.status === 'unread' ? '\u25C9' : '\u25CB'
+        menuItems.push({
+          label: `${indent}  ${dot} ${session.sessionName}`,
+          click: () => {
+            if (win.isMinimized()) win.restore()
+            win.focus()
+            win.webContents.send('notification:focus-session', session.sessionId)
+          },
+        })
+      }
+    } else if (state) {
       const config = loadConfig(state.projectPath)
       const name = config?.projectName || path.basename(state.projectPath) || 'ForgeTerm'
       menuItems.push({
-        label: name,
-        click: () => {
-          if (win.isMinimized()) win.restore()
-          win.focus()
-        },
+        label: `${indent}${name}`,
+        click: () => { if (win.isMinimized()) win.restore(); win.focus() },
       })
     }
-    if (menuItems.length > 0) menuItems.push({ type: 'separator' })
   }
 
+  // 1. Workspaces with open windows
+  for (const [wsName, winIds] of workspaceWindowMap) {
+    const ws = workspaces.find((w) => w.name === wsName)!
+    const prefix = ws.emoji ? `${ws.emoji} ` : ''
+    menuItems.push({
+      label: `${prefix}${wsName}`,
+      click: () => openWorkspaceFromTray(ws),
+    })
+    for (const winId of winIds) {
+      addProjectItems(winId, '  ')
+    }
+    menuItems.push({ type: 'separator' })
+  }
+
+  // 2. Standalone projects (not in any workspace)
+  for (const winId of standaloneWindows) {
+    addProjectItems(winId, '')
+    menuItems.push({ type: 'separator' })
+  }
+
+  // 3. Closed workspaces (no open windows) - clickable to launch
+  const closedWorkspaces = workspaces.filter((ws) => !workspaceWindowMap.has(ws.name))
+  for (const ws of closedWorkspaces) {
+    const prefix = ws.emoji ? `${ws.emoji} ` : ''
+    menuItems.push({
+      label: `${prefix}${ws.name}`,
+      click: () => openWorkspaceFromTray(ws),
+    })
+  }
+  if (closedWorkspaces.length > 0) menuItems.push({ type: 'separator' })
+
+  // 4. Actions
   menuItems.push({
     label: 'New Window...',
     click: async () => {
@@ -769,6 +825,33 @@ function updateTrayMenu() {
   menuItems.push({ label: 'Quit ForgeTerm', click: () => app.quit() })
 
   tray.setContextMenu(Menu.buildFromTemplate(menuItems))
+}
+
+function openWorkspaceFromTray(ws: Workspace) {
+  const disabled = new Set(ws.disabledProjects || [])
+  const enabledPaths = ws.projects.filter((p) => !disabled.has(p))
+  const windows: BrowserWindow[] = []
+  for (const projectPath of enabledPaths) {
+    windows.push(focusOrCreateWindow(projectPath))
+  }
+  if (ws.arrange !== false) {
+    const displayCount = screen.getAllDisplays().length
+    const key = String(displayCount)
+    const indices = ws.screenPrefs?.[key]
+    tileWindows(windows, indices)
+  }
+  if (ws.defaultCommand) {
+    const cmd = ws.defaultCommand
+    setTimeout(() => {
+      for (const win of windows) {
+        const state = windowStates.get(win.id)
+        if (state) {
+          const firstSession = state.ptyManager.getFirstSessionId()
+          if (firstSession) state.ptyManager.write(firstSession, cmd + '\n')
+        }
+      }
+    }, 1500)
+  }
 }
 
 function updateDockBadge() {

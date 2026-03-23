@@ -133,6 +133,8 @@ export interface RemoteStatus {
   tunnelUrl: string | null
   pin: string | null
   sessionPath: string | null
+  tunnelError: string | null
+  tunnelLogs: string[]
 }
 
 export type CliStatus = 'not-setup' | 'connected' | 'error'
