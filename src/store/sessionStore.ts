@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { SessionActivityStatus } from '../../shared/types'
+import type { SessionActivityStatus, SessionContext } from '../../shared/types'
 
 export interface Session {
   id: string
@@ -7,6 +7,7 @@ export interface Session {
   command?: string
   running: boolean
   activityStatus: SessionActivityStatus
+  info?: SessionContext
 }
 
 interface SessionStore {
@@ -17,6 +18,7 @@ interface SessionStore {
   setActive: (id: string) => void
   setRunning: (id: string, running: boolean) => void
   renameSession: (id: string, name: string) => void
+  setSessionInfo: (id: string, info: SessionContext) => void
   setActivityStatus: (id: string, status: SessionActivityStatus) => void
   markSessionWorking: (id: string) => void
 }
@@ -63,6 +65,13 @@ export const useSessionStore = create<SessionStore>((set) => ({
     set((state) => ({
       sessions: state.sessions.map((s) =>
         s.id === id ? { ...s, name } : s,
+      ),
+    })),
+
+  setSessionInfo: (id, info) =>
+    set((state) => ({
+      sessions: state.sessions.map((s) =>
+        s.id === id ? { ...s, info } : s,
       ),
     })),
 

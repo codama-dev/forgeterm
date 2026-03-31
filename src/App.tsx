@@ -139,6 +139,17 @@ function App() {
     return () => clearInterval(interval)
   }, [])
 
+  // Listen for CLI-driven session rename and info updates
+  useEffect(() => {
+    const unsubRename = window.forgeterm.onSessionRenamed((sessionId, name) => {
+      useSessionStore.getState().renameSession(sessionId, name)
+    })
+    const unsubInfo = window.forgeterm.onSessionInfoUpdated((sessionId, info) => {
+      useSessionStore.getState().setSessionInfo(sessionId, info)
+    })
+    return () => { unsubRename(); unsubInfo() }
+  }, [])
+
   // Listen for session exits
   useEffect(() => {
     return window.forgeterm.onSessionExit((id, _exitCode) => {

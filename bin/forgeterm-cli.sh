@@ -19,6 +19,8 @@ Usage: forgeterm <command> [options]
 
 Commands:
   notify "message"        Send a native notification via ForgeTerm
+  rename "name"           Rename the current terminal session
+  info                    Update session info (title, summary, etc.)
   open [path]             Open a project in the running ForgeTerm app
   open-workspace [path]   Open a folder's children as a workspace
   list [--json]           List recent projects
@@ -296,11 +298,137 @@ USAGE
   fi
 }
 
+cmd_rename() {
+  if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat <<'USAGE'
+Usage: forgeterm rename "new name"
+
+Rename the current terminal session. Must be run inside a ForgeTerm session.
+
+Examples:
+  forgeterm rename "Build Server"
+  forgeterm rename "PR Review #42"
+USAGE
+    exit 0
+  fi
+
+  local name="$1"
+  if [ -z "$name" ]; then
+    echo "Usage: forgeterm rename \"new name\"" >&2
+    exit 1
+  fi
+
+  if [ -z "$FORGETERM_SESSION_ID" ] || [ -z "$FORGETERM_PROJECT_PATH" ]; then
+    echo "Not running inside a ForgeTerm session" >&2
+    exit 1
+  fi
+
+  local json="{"
+  json+="\"command\":\"rename\""
+  json+=",\"name\":$(json_string "$name")"
+  json+=",\"projectPath\":$(json_string "$FORGETERM_PROJECT_PATH")"
+  json+=",\"sessionId\":$(json_string "$FORGETERM_SESSION_ID")"
+  json+="}"
+
+  local response
+  response=$(send_to_socket "$json") || exit 1
+
+  if echo "$response" | grep -q '"ok":true'; then
+    exit 0
+  else
+    echo "Rename failed: $response" >&2
+    exit 1
+  fi
+}
+
+cmd_info() {
+  if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat <<'USAGE'
+Usage: forgeterm info --title "..." --summary "..." --last "..." [--action "..."]
+
+Update session info card. Must be run inside a ForgeTerm session.
+The info is shown in the sidebar when clicking the info icon.
+
+Options:
+  --title "title"       One-sentence title of what this session is doing
+  --summary "text"      2-3 sentences on current state
+  --last "text"         What was just completed
+  --action "text"       (Optional) Action item requiring human attention
+  -h, --help            Show this help
+
+Examples:
+  forgeterm info \
+    --title "Refactoring auth middleware" \
+    --summary "Splitting auth.ts into separate modules for JWT and session handling." \
+    --last "Extracted JWT validation into jwt.ts"
+
+  forgeterm info \
+    --title "PR Review #42" \
+    --summary "Reviewing changes to the payment flow." \
+    --last "Found a missing null check in checkout.ts" \
+    --action "Approve or request changes on the PR"
+USAGE
+    exit 0
+  fi
+
+  local title="" summary="" last_action="" action_item=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --title) shift; title="$1" ;;
+      --summary) shift; summary="$1" ;;
+      --last) shift; last_action="$1" ;;
+      --action) shift; action_item="$1" ;;
+      -*) echo "Unknown option: $1" >&2; exit 1 ;;
+    esac
+    shift
+  done
+
+  if [ -z "$title" ] || [ -z "$summary" ] || [ -z "$last_action" ]; then
+    echo "Required: --title, --summary, --last" >&2
+    echo "Run 'forgeterm info --help' for usage." >&2
+    exit 1
+  fi
+
+  if [ -z "$FORGETERM_SESSION_ID" ] || [ -z "$FORGETERM_PROJECT_PATH" ]; then
+    echo "Not running inside a ForgeTerm session" >&2
+    exit 1
+  fi
+
+  local json="{"
+  json+="\"command\":\"info\""
+  json+=",\"title\":$(json_string "$title")"
+  json+=",\"summary\":$(json_string "$summary")"
+  json+=",\"lastAction\":$(json_string "$last_action")"
+  [ -n "$action_item" ] && json+=",\"actionItem\":$(json_string "$action_item")"
+  json+=",\"projectPath\":$(json_string "$FORGETERM_PROJECT_PATH")"
+  json+=",\"sessionId\":$(json_string "$FORGETERM_SESSION_ID")"
+  json+="}"
+
+  local response
+  response=$(send_to_socket "$json") || exit 1
+
+  if echo "$response" | grep -q '"ok":true'; then
+    exit 0
+  else
+    echo "Info update failed: $response" >&2
+    exit 1
+  fi
+}
+
 # Main dispatch
 case "${1:-}" in
   notify)
     shift
     cmd_notify "$@"
+    ;;
+  rename)
+    shift
+    cmd_rename "$@"
+    ;;
+  info)
+    shift
+    cmd_info "$@"
     ;;
   open)
     shift

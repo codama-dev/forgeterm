@@ -2,7 +2,7 @@ import { app, Notification, BrowserWindow } from 'electron'
 import net from 'node:net'
 import path from 'node:path'
 import fs from 'node:fs'
-import type { ForgeTermNotification } from '../shared/types'
+import type { ForgeTermNotification, SessionContext } from '../shared/types'
 
 export function getSocketPath(): string {
   return path.join(app.getPath('userData'), 'forgeterm.sock')
@@ -14,6 +14,8 @@ interface NotificationServerOptions {
   focusOrCreateWindow: (projectPath: string) => void
   loadRecentProjects: () => Array<{ path: string; name: string; lastOpened?: number; workspace?: string }>
   openFolderAsWorkspace: (parentPath: string) => void
+  renameSession: (projectPath: string, sessionId: string, name: string) => void
+  updateSessionInfo: (projectPath: string, sessionId: string, info: SessionContext) => void
 }
 
 interface CliCommand {
@@ -91,6 +93,43 @@ export class NotificationServer {
         case 'list': {
           const projects = this.options.loadRecentProjects()
           return { ok: true, data: projects }
+        }
+
+        case 'rename': {
+          const projectPath = payload.projectPath as string
+          const sessionId = payload.sessionId as string
+          const name = payload.name as string
+          if (!projectPath || !sessionId || !name) return { ok: false, error: 'Missing projectPath, sessionId, or name' }
+          try {
+            this.options.renameSession(projectPath, sessionId, name)
+            return { ok: true }
+          } catch (err: unknown) {
+            return { ok: false, error: (err as Error).message }
+          }
+        }
+
+        case 'info': {
+          const projectPath = payload.projectPath as string
+          const sessionId = payload.sessionId as string
+          const title = payload.title as string
+          const summary = payload.summary as string
+          const lastAction = payload.lastAction as string
+          const actionItem = payload.actionItem as string | undefined
+          if (!projectPath || !sessionId || !title || !summary || !lastAction) {
+            return { ok: false, error: 'Missing required fields (projectPath, sessionId, title, summary, lastAction)' }
+          }
+          try {
+            this.options.updateSessionInfo(projectPath, sessionId, {
+              title,
+              summary,
+              lastAction,
+              actionItem: actionItem || undefined,
+              updatedAt: Date.now(),
+            })
+            return { ok: true }
+          } catch (err: unknown) {
+            return { ok: false, error: (err as Error).message }
+          }
         }
 
         case 'open-workspace': {

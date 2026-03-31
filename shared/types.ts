@@ -118,6 +118,14 @@ export interface SessionTemplate {
   projectPath: string
 }
 
+export interface SessionContext {
+  title: string
+  summary: string
+  lastAction: string
+  actionItem?: string
+  updatedAt: number
+}
+
 export interface ForgeTermNotification {
   message: string
   title?: string
@@ -227,4 +235,6 @@ export interface ForgeTermAPI {
   getRemoteStatus: () => Promise<RemoteStatus>
   onRemoteStatusChanged: (callback: (status: RemoteStatus) => void) => () => void
   reportSessionStatuses: (statuses: SessionStatusReport[]) => void
+  onSessionRenamed: (callback: (sessionId: string, name: string) => void) => () => void
+  onSessionInfoUpdated: (callback: (sessionId: string, info: SessionContext) => void) => () => void
 }

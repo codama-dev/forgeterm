@@ -48,6 +48,7 @@ export function Sidebar({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [repoUrl, setRepoUrl] = useState<string | null | undefined>(undefined)
+  const [infoPopover, setInfoPopover] = useState<{ sessionId: string; x: number; y: number } | null>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const btnBg = buttonBackground ?? '#1c2d4d'
@@ -66,7 +67,7 @@ export function Sidebar({
   }, [])
 
   useEffect(() => {
-    const handleClick = () => setMenu(null)
+    const handleClick = () => { setMenu(null); setInfoPopover(null) }
     window.addEventListener('click', handleClick)
     return () => window.removeEventListener('click', handleClick)
   }, [])
@@ -171,6 +172,27 @@ export function Sidebar({
                 {!compact && (
                   <>
                     <span className="session-name">{session.name}</span>
+                    {session.info && (
+                      <button
+                        className="session-info-btn"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                          setInfoPopover(infoPopover?.sessionId === session.id ? null : {
+                            sessionId: session.id,
+                            x: rect.right + 8,
+                            y: rect.top - 4,
+                          })
+                        }}
+                        title="Session info"
+                        style={{ color: accentColor }}
+                      >
+                        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                          <circle cx="8" cy="4" r="1.5" />
+                          <rect x="6.5" y="7" width="3" height="7" rx="1" />
+                        </svg>
+                      </button>
+                    )}
                     <div className="session-controls">
                       {session.running ? (
                         <button
@@ -372,6 +394,46 @@ export function Sidebar({
           </div>
         </div>
       )}
+
+      {infoPopover && (() => {
+        const session = sessions.find((s) => s.id === infoPopover.sessionId)
+        const info = session?.info
+        if (!info) return null
+        const ago = formatTimeAgo(info.updatedAt)
+        return (
+          <div
+            className="session-info-popover"
+            style={{ top: infoPopover.y, left: infoPopover.x }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="session-info-title">{info.title}</div>
+            <div className="session-info-summary">{info.summary}</div>
+            <div className="session-info-divider" />
+            <div className="session-info-label">Last action</div>
+            <div className="session-info-text">{info.lastAction}</div>
+            {info.actionItem && (
+              <>
+                <div className="session-info-divider" />
+                <div className="session-info-action-item">
+                  <span className="session-info-action-badge" style={{ background: accentColor }}>Action needed</span>
+                  {info.actionItem}
+                </div>
+              </>
+            )}
+            <div className="session-info-time">Updated {ago}</div>
+          </div>
+        )
+      })()}
     </div>
   )
+}
+
+function formatTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000)
+  if (seconds < 60) return 'just now'
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
 }

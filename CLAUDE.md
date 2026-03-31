@@ -47,16 +47,11 @@ Per-project `.forgeterm.json` files configure theme colors, font, window chrome,
 ## CLI entry
 `bin/forgeterm.cjs` is the CLI entry point. The app accepts a directory path argument to open a project window.
 
-When you finish a task, run: forgeterm notify "Done"
-This sends a native notification via ForgeTerm. It automatically knows which project and session you're in. No config needed.
-
-For long-running tasks (builds, deploys, test suites), notify on both success and failure:
-  command && forgeterm notify "Success" || forgeterm notify "Failed"
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **forgeterm** (342 symbols, 912 relationships, 27 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **forgeterm** (356 symbols, 958 relationships, 29 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

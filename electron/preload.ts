@@ -1,5 +1,5 @@
 import { ipcRenderer, contextBridge } from 'electron'
-import type { ForgeTermAPI, CliStatus, UpdateInfo, RemoteStatus } from '../shared/types'
+import type { ForgeTermAPI, CliStatus, UpdateInfo, RemoteStatus, SessionContext } from '../shared/types'
 
 const api: ForgeTermAPI = {
   createSession: (name: string, command?: string, idle?: boolean) =>
@@ -281,6 +281,18 @@ const api: ForgeTermAPI = {
 
   reportSessionStatuses: (statuses) =>
     ipcRenderer.send('activity:report', statuses),
+
+  onSessionRenamed: (callback: (sessionId: string, name: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string, name: string) => callback(sessionId, name)
+    ipcRenderer.on('session:renamed', handler)
+    return () => { ipcRenderer.removeListener('session:renamed', handler) }
+  },
+
+  onSessionInfoUpdated: (callback: (sessionId: string, info: SessionContext) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string, info: SessionContext) => callback(sessionId, info)
+    ipcRenderer.on('session:info-updated', handler)
+    return () => { ipcRenderer.removeListener('session:info-updated', handler) }
+  },
 }
 
 contextBridge.exposeInMainWorld('forgeterm', api)

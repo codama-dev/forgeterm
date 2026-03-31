@@ -67,6 +67,20 @@ const notificationServer = new NotificationServer({
   },
   loadRecentProjects,
   openFolderAsWorkspace,
+  renameSession: (projectPath: string, sessionId: string, name: string) => {
+    const win = findWindowForProject(projectPath)
+    if (win && !win.isDestroyed()) {
+      const state = windowStates.get(win.id)
+      state?.ptyManager.rename(sessionId, name)
+      win.webContents.send('session:renamed', sessionId, name)
+    }
+  },
+  updateSessionInfo: (projectPath: string, sessionId: string, info) => {
+    const win = findWindowForProject(projectPath)
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('session:info-updated', sessionId, info)
+    }
+  },
 })
 
 const remoteServer = new RemoteServer({
