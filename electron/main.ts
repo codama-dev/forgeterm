@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { execSync } from 'node:child_process'
 import { PtyManager } from './ptyManager'
-import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport } from '../shared/types'
+import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext } from '../shared/types'
 import { UpdateManager } from './updater'
 import { NotificationServer, getSocketPath } from './notificationServer'
 import { isFinderIntegrationInstalled, installFinderIntegration, uninstallFinderIntegration } from './finderIntegration'
@@ -42,6 +42,7 @@ interface WindowState {
   projectPath: string
   ptyManager: PtyManager
   configWatcher?: fs.FSWatcher
+  activeSessionId?: string
 }
 
 const windowStates = new Map<number, WindowState>()
@@ -75,9 +76,11 @@ const notificationServer = new NotificationServer({
       win.webContents.send('session:renamed', sessionId, name)
     }
   },
-  updateSessionInfo: (projectPath: string, sessionId: string, info) => {
+  updateSessionInfo: (projectPath: string, sessionId: string, info: SessionContext) => {
     const win = findWindowForProject(projectPath)
     if (win && !win.isDestroyed()) {
+      const state = windowStates.get(win.id)
+      state?.ptyManager.setSessionInfo(sessionId, info)
       win.webContents.send('session:info-updated', sessionId, info)
     }
   },
@@ -193,6 +196,83 @@ function removeProjectFromWorkspace(projectPath: string) {
 function getWorkspaceForProject(projectPath: string): string | undefined {
   const workspaces = loadWorkspaces()
   return workspaces.find((ws) => ws.projects.includes(projectPath))?.name
+}
+
+// --- Session state persistence ---
+
+function getSavedSessionsPath(): string {
+  return path.join(app.getPath('userData'), 'saved-sessions.json')
+}
+
+function loadSavedSessions(): SavedWindowState[] {
+  try {
+    return JSON.parse(fs.readFileSync(getSavedSessionsPath(), 'utf-8')) as SavedWindowState[]
+  } catch {
+    return []
+  }
+}
+
+function saveSavedSessions(states: SavedWindowState[]) {
+  fs.writeFileSync(getSavedSessionsPath(), JSON.stringify(states, null, 2), 'utf-8')
+}
+
+function detectClaudeSessionId(shellPid: number): string | null {
+  const claudeSessionsDir = path.join(app.getPath('home'), '.claude', 'sessions')
+  const checkPids = (parentPid: number): string | null => {
+    let childPids: number[]
+    try {
+      const output = execSync(`pgrep -P ${parentPid}`, { encoding: 'utf-8', timeout: 2000 })
+      childPids = output.trim().split('\n').map(Number).filter(Boolean)
+    } catch {
+      return null
+    }
+    for (const pid of childPids) {
+      const sessionFile = path.join(claudeSessionsDir, `${pid}.json`)
+      try {
+        const data = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'))
+        if (data.sessionId) return data.sessionId as string
+      } catch { /* not a Claude session */ }
+    }
+    // Check grandchildren
+    for (const pid of childPids) {
+      const result = checkPids(pid)
+      if (result) return result
+    }
+    return null
+  }
+  return checkPids(shellPid)
+}
+
+function saveWindowSessionState(state: WindowState) {
+  if (!state.projectPath) return
+  const sessions = state.ptyManager.getAllSessions()
+  if (sessions.length === 0) return
+
+  const savedSessions: SavedSession[] = sessions.map((s, index) => {
+    let claudeSessionId: string | undefined
+    if (s.running && s.pid) {
+      claudeSessionId = detectClaudeSessionId(s.pid) ?? undefined
+    }
+    return {
+      name: s.name,
+      command: s.command,
+      wasRunning: s.running,
+      claudeSessionId,
+      info: s.info,
+      order: index,
+    }
+  })
+
+  const activeSession = sessions.find(s => s.id === state.activeSessionId)
+  const allSaved = loadSavedSessions()
+  const filtered = allSaved.filter(s => s.projectPath !== state.projectPath)
+  filtered.push({
+    projectPath: state.projectPath,
+    sessions: savedSessions,
+    activeSessionName: activeSession?.name,
+    savedAt: Date.now(),
+  })
+  saveSavedSessions(filtered)
 }
 
 // --- Window tiling ---
@@ -480,6 +560,7 @@ function createProjectWindow(projectPath: string | null) {
   win.on('closed', () => {
     const state = windowStates.get(win.id)
     if (state) {
+      saveWindowSessionState(state)
       state.ptyManager.killAll()
       state.configWatcher?.close()
       windowStates.delete(win.id)
@@ -1563,11 +1644,13 @@ function setupIpcHandlers() {
   })
 
   // Session activity tracking for tray menu and dock badge
-  ipcMain.on('activity:report', (event, statuses: SessionStatusReport[]) => {
+  ipcMain.on('activity:report', (event, statuses: SessionStatusReport[], activeSessionId: string | null) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     if (!win) return
     const state = windowStates.get(win.id)
     if (!state?.projectPath) return
+
+    if (activeSessionId) state.activeSessionId = activeSessionId
 
     const config = loadConfig(state.projectPath)
     const projectName = config?.projectName || path.basename(state.projectPath)
@@ -1575,6 +1658,25 @@ function setupIpcHandlers() {
     windowActivities.set(win.id, { projectName, sessions: statuses })
     updateTrayMenu()
     updateDockBadge()
+  })
+
+  ipcMain.handle('sessions:get-saved', (event) => {
+    const state = getStateForEvent(event)
+    if (!state?.projectPath) return null
+    const allSaved = loadSavedSessions()
+    return allSaved.find(s => s.projectPath === state.projectPath) ?? null
+  })
+
+  ipcMain.handle('sessions:clear-saved', (event) => {
+    const state = getStateForEvent(event)
+    if (!state?.projectPath) return
+    const allSaved = loadSavedSessions()
+    const filtered = allSaved.filter(s => s.projectPath !== state.projectPath)
+    saveSavedSessions(filtered)
+  })
+
+  ipcMain.handle('session:delete', (event, id: string) => {
+    getStateForEvent(event)?.ptyManager.removeSession(id)
   })
 }
 
@@ -1848,6 +1950,12 @@ app.whenReady().then(() => {
     }
   })
   updateManager.startPeriodicChecks()
+
+  // Clean up stale saved sessions (>7 days)
+  const staleThreshold = 7 * 24 * 60 * 60 * 1000
+  const allSaved = loadSavedSessions()
+  const fresh = allSaved.filter(s => Date.now() - s.savedAt < staleThreshold)
+  if (fresh.length !== allSaved.length) saveSavedSessions(fresh)
 
   const projectPath = getInitialProjectPath()
   createProjectWindow(projectPath)

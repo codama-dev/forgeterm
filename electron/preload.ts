@@ -279,8 +279,8 @@ const api: ForgeTermAPI = {
     return () => { ipcRenderer.removeListener('remote:status-changed', handler) }
   },
 
-  reportSessionStatuses: (statuses) =>
-    ipcRenderer.send('activity:report', statuses),
+  reportSessionStatuses: (statuses, activeSessionId) =>
+    ipcRenderer.send('activity:report', statuses, activeSessionId),
 
   onSessionRenamed: (callback: (sessionId: string, name: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessionId: string, name: string) => callback(sessionId, name)
@@ -293,6 +293,15 @@ const api: ForgeTermAPI = {
     ipcRenderer.on('session:info-updated', handler)
     return () => { ipcRenderer.removeListener('session:info-updated', handler) }
   },
+
+  getSavedSessions: () =>
+    ipcRenderer.invoke('sessions:get-saved'),
+
+  clearSavedSessions: () =>
+    ipcRenderer.invoke('sessions:clear-saved'),
+
+  deleteSession: (id: string) =>
+    ipcRenderer.invoke('session:delete', id),
 }
 
 contextBridge.exposeInMainWorld('forgeterm', api)

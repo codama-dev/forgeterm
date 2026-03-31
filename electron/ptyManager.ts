@@ -1,5 +1,6 @@
 import * as pty from 'node-pty'
 import os from 'node:os'
+import type { SessionContext } from '../shared/types'
 
 interface PtySession {
   id: string
@@ -8,6 +9,7 @@ interface PtySession {
   command?: string
   cwd: string
   running: boolean
+  info?: SessionContext
 }
 
 interface CreateSessionOptions {
@@ -200,6 +202,15 @@ export class PtyManager {
     }
   }
 
+  setSessionInfo(id: string, info: SessionContext) {
+    const session = this.sessions.get(id)
+    if (session) session.info = info
+  }
+
+  getPid(id: string): number | null {
+    return this.sessions.get(id)?.pty?.pid ?? null
+  }
+
   getSession(id: string) {
     return this.sessions.get(id)
   }
@@ -231,12 +242,14 @@ export class PtyManager {
     return () => { this.extraExitListeners.get(id)?.delete(listener) }
   }
 
-  getAllSessions(): Array<{ id: string; name: string; command?: string; running: boolean }> {
+  getAllSessions(): Array<{ id: string; name: string; command?: string; running: boolean; pid: number | null; info?: SessionContext }> {
     return Array.from(this.sessions.values()).map(s => ({
       id: s.id,
       name: s.name,
       command: s.command,
       running: s.running,
+      pid: s.pty?.pid ?? null,
+      info: s.info,
     }))
   }
 }

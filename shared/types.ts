@@ -126,6 +126,22 @@ export interface SessionContext {
   updatedAt: number
 }
 
+export interface SavedSession {
+  name: string
+  command?: string
+  wasRunning: boolean
+  claudeSessionId?: string
+  info?: SessionContext
+  order: number
+}
+
+export interface SavedWindowState {
+  projectPath: string
+  sessions: SavedSession[]
+  activeSessionName?: string
+  savedAt: number
+}
+
 export interface ForgeTermNotification {
   message: string
   title?: string
@@ -234,7 +250,10 @@ export interface ForgeTermAPI {
   stopRemoteAccess: () => Promise<RemoteStatus>
   getRemoteStatus: () => Promise<RemoteStatus>
   onRemoteStatusChanged: (callback: (status: RemoteStatus) => void) => () => void
-  reportSessionStatuses: (statuses: SessionStatusReport[]) => void
+  reportSessionStatuses: (statuses: SessionStatusReport[], activeSessionId: string | null) => void
   onSessionRenamed: (callback: (sessionId: string, name: string) => void) => () => void
   onSessionInfoUpdated: (callback: (sessionId: string, info: SessionContext) => void) => () => void
+  getSavedSessions: () => Promise<SavedWindowState | null>
+  clearSavedSessions: () => Promise<void>
+  deleteSession: (id: string) => Promise<void>
 }

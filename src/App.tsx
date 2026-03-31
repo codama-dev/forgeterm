@@ -63,11 +63,12 @@ function App() {
     initializedRef.current = true
 
     async function init() {
-      const [projectConfig, projectPath, savedSidebarMode, hasProject] = await Promise.all([
+      const [projectConfig, projectPath, savedSidebarMode, hasProject, savedState] = await Promise.all([
         window.forgeterm.getProjectConfig(),
         window.forgeterm.getProjectPath(),
         window.forgeterm.getSidebarMode(),
         window.forgeterm.hasProject(),
+        window.forgeterm.getSavedSessions(),
       ])
 
       if (!hasProject) {
@@ -80,6 +81,41 @@ function App() {
       const folder = projectPath?.split('/').pop() || 'ForgeTerm'
       setFolderName(folder)
       document.title = projectConfig?.projectName || folder
+
+      // Restore from saved state if available
+      if (savedState && savedState.sessions.length > 0) {
+        const sorted = [...savedState.sessions].sort((a, b) => a.order - b.order)
+        const results = await Promise.all(
+          sorted.map(async (s) => {
+            let command = s.command
+            let idle = !s.wasRunning
+
+            if (s.claudeSessionId) {
+              command = `claude -r ${s.claudeSessionId}`
+              idle = false
+            }
+
+            const id = await window.forgeterm.createSession(s.name, command, idle)
+            return id ? { id, name: s.name, command: s.command, running: !idle, info: s.info } : null
+          })
+        )
+        for (const r of results) {
+          if (r) {
+            addSession(r)
+            if (r.info) {
+              useSessionStore.getState().setSessionInfo(r.id, r.info)
+            }
+          }
+        }
+
+        if (savedState.activeSessionName) {
+          const match = useSessionStore.getState().sessions.find(s => s.name === savedState.activeSessionName)
+          if (match) useSessionStore.getState().setActive(match.id)
+        }
+
+        await window.forgeterm.clearSavedSessions()
+        return
+      }
 
       // Create sessions in parallel for faster startup
       if (projectConfig?.sessions?.length) {
@@ -134,7 +170,7 @@ function App() {
         sessionName: s.name,
         status: s.activityStatus,
       }))
-      window.forgeterm.reportSessionStatuses(statuses)
+      window.forgeterm.reportSessionStatuses(statuses, store.activeSessionId)
     }, 2000)
     return () => clearInterval(interval)
   }, [])
@@ -197,10 +233,11 @@ function App() {
     return window.forgeterm.onProjectOpened(async () => {
       setShowWelcome(false)
       initializedRef.current = false
-      const [projectConfig, projectPath, savedSidebarMode] = await Promise.all([
+      const [projectConfig, projectPath, savedSidebarMode, savedState] = await Promise.all([
         window.forgeterm.getProjectConfig(),
         window.forgeterm.getProjectPath(),
         window.forgeterm.getSidebarMode(),
+        window.forgeterm.getSavedSessions(),
       ])
       setConfig(projectConfig)
       if (savedSidebarMode) setSidebarMode(savedSidebarMode)
@@ -208,7 +245,32 @@ function App() {
       setFolderName(folder)
       document.title = projectConfig?.projectName || folder
 
-      if (projectConfig?.sessions?.length) {
+      if (savedState && savedState.sessions.length > 0) {
+        const sorted = [...savedState.sessions].sort((a, b) => a.order - b.order)
+        const results = await Promise.all(
+          sorted.map(async (s) => {
+            let command = s.command
+            let idle = !s.wasRunning
+            if (s.claudeSessionId) {
+              command = `claude -r ${s.claudeSessionId}`
+              idle = false
+            }
+            const id = await window.forgeterm.createSession(s.name, command, idle)
+            return id ? { id, name: s.name, command: s.command, running: !idle, info: s.info } : null
+          })
+        )
+        for (const r of results) {
+          if (r) {
+            addSession(r)
+            if (r.info) useSessionStore.getState().setSessionInfo(r.id, r.info)
+          }
+        }
+        if (savedState.activeSessionName) {
+          const match = useSessionStore.getState().sessions.find(s => s.name === savedState.activeSessionName)
+          if (match) useSessionStore.getState().setActive(match.id)
+        }
+        await window.forgeterm.clearSavedSessions()
+      } else if (projectConfig?.sessions?.length) {
         const results = await Promise.all(
           projectConfig.sessions.map(async (s) => {
             const idle = s.autoStart === false
@@ -312,7 +374,7 @@ function App() {
         e.preventDefault()
         const store = useSessionStore.getState()
         if (store.activeSessionId) {
-          window.forgeterm.killSession(store.activeSessionId)
+          window.forgeterm.deleteSession(store.activeSessionId)
           removeSession(store.activeSessionId)
         }
       }

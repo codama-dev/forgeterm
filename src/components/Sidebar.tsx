@@ -94,7 +94,7 @@ export function Sidebar({
   }, [])
 
   const handleDelete = useCallback(async (id: string) => {
-    await window.forgeterm.killSession(id)
+    await window.forgeterm.deleteSession(id)
     removeSession(id)
   }, [removeSession])
 
