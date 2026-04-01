@@ -302,6 +302,12 @@ const api: ForgeTermAPI = {
 
   deleteSession: (id: string) =>
     ipcRenderer.invoke('session:delete', id),
+
+  checkClaudeConnection: () =>
+    ipcRenderer.invoke('claude:check-connection'),
+
+  getClaudeSetupPrompt: () =>
+    ipcRenderer.invoke('claude:get-setup-prompt'),
 }
 
 contextBridge.exposeInMainWorld('forgeterm', api)

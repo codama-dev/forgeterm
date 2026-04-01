@@ -9,6 +9,7 @@ import { HelpModal } from './components/HelpModal'
 import { CliInstallModal } from './components/CliInstallModal'
 import { RemoteAccessModal } from './components/RemoteAccessModal'
 import { UpdateBanner } from './components/UpdateBanner'
+import { ClaudeConnectionBanner } from './components/ClaudeConnectionBanner'
 import { useSessionStore } from './store/sessionStore'
 import type { ForgeTermConfig, CliStatus } from '../shared/types'
 import type { WindowTheme } from './themes'
@@ -91,7 +92,8 @@ function App() {
             let idle = !s.wasRunning
 
             if (s.claudeSessionId) {
-              command = `claude -r ${s.claudeSessionId}`
+              const extraArgs = projectConfig?.claudeResumeArgs?.join(' ') || ''
+              command = `claude -r ${s.claudeSessionId}${extraArgs ? ' ' + extraArgs : ''}`
               idle = false
             }
 
@@ -252,7 +254,8 @@ function App() {
             let command = s.command
             let idle = !s.wasRunning
             if (s.claudeSessionId) {
-              command = `claude -r ${s.claudeSessionId}`
+              const extraArgs = projectConfig?.claudeResumeArgs?.join(' ') || ''
+              command = `claude -r ${s.claudeSessionId}${extraArgs ? ' ' + extraArgs : ''}`
               idle = false
             }
             const id = await window.forgeterm.createSession(s.name, command, idle)
@@ -624,6 +627,7 @@ function App() {
               Install CLI
             </button>
           )}
+          <ClaudeConnectionBanner accentColor={accentColor} />
         </div>
       </div>
 

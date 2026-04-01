@@ -13,7 +13,7 @@ export interface ForgeTermConfig {
     cyan?: string
     white?: string
   }
-  terminalTheme?: 'dark' | 'light'
+  terminalTheme?: string
   font?: {
     family?: string
     size?: number
@@ -36,6 +36,7 @@ export interface ForgeTermConfig {
     autoStart?: boolean
   }>
   dragDropBehavior?: 'ask' | 'path' | 'content' | 'copy'
+  claudeResumeArgs?: string[]
 }
 
 export interface SessionInfo {
@@ -108,7 +109,7 @@ export interface FavoriteTheme {
     sidebarForeground: string
     buttonBackground: string
   }
-  terminalMode: 'dark' | 'light'
+  terminalMode: string
 }
 
 export interface SessionTemplate {
@@ -162,6 +163,13 @@ export interface RemoteStatus {
 }
 
 export type CliStatus = 'not-setup' | 'connected' | 'error'
+
+export interface ClaudeConnectionStatus {
+  connected: boolean
+  currentVersion: string
+  promptedVersion: string | null
+  needsUpdate: boolean
+}
 
 export type SessionActivityStatus = 'idle' | 'working' | 'unread'
 
@@ -256,4 +264,6 @@ export interface ForgeTermAPI {
   getSavedSessions: () => Promise<SavedWindowState | null>
   clearSavedSessions: () => Promise<void>
   deleteSession: (id: string) => Promise<void>
+  checkClaudeConnection: () => Promise<ClaudeConnectionStatus>
+  getClaudeSetupPrompt: () => Promise<string>
 }

@@ -2,20 +2,19 @@ import { app, Notification, BrowserWindow } from 'electron'
 import net from 'node:net'
 import path from 'node:path'
 import fs from 'node:fs'
-import type { ForgeTermNotification, SessionContext } from '../shared/types'
+import type { ForgeTermNotification } from '../shared/types'
 
 export function getSocketPath(): string {
   return path.join(app.getPath('userData'), 'forgeterm.sock')
 }
 
-interface NotificationServerOptions {
+export type CommandResult = { ok: boolean; data?: unknown; error?: string }
+export type CommandHandler = (payload: Record<string, unknown>) => CommandResult
+
+export interface NotificationServerOptions {
+  handlers: Map<string, CommandHandler>
   findWindowForProject: (projectPath: string) => BrowserWindow | null
   getProjectDisplayName: (projectPath: string) => string | null
-  focusOrCreateWindow: (projectPath: string) => void
-  loadRecentProjects: () => Array<{ path: string; name: string; lastOpened?: number; workspace?: string }>
-  openFolderAsWorkspace: (parentPath: string) => void
-  renameSession: (projectPath: string, sessionId: string, name: string) => void
-  updateSessionInfo: (projectPath: string, sessionId: string, info: SessionContext) => void
 }
 
 interface CliCommand {
@@ -67,89 +66,18 @@ export class NotificationServer {
     this.server.listen(socketPath)
   }
 
-  private handleCommand(payload: CliCommand | ForgeTermNotification): { ok: boolean; error?: string; data?: unknown } {
-    // New-style command with explicit `command` field
+  private handleCommand(payload: CliCommand | ForgeTermNotification): CommandResult {
+    // Command with explicit `command` field
     if ('command' in payload && typeof payload.command === 'string') {
-      switch (payload.command) {
-        case 'notify':
-          this.showNotification(payload as unknown as ForgeTermNotification)
-          return { ok: true }
-
-        case 'open': {
-          const projectPath = payload.path as string
-          if (!projectPath) return { ok: false, error: 'Missing path' }
-          try {
-            const resolved = path.resolve(projectPath)
-            if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-              return { ok: false, error: `Not a directory: ${resolved}` }
-            }
-            this.options.focusOrCreateWindow(resolved)
-            return { ok: true }
-          } catch (err: unknown) {
-            return { ok: false, error: (err as Error).message }
-          }
+      const handler = this.options.handlers.get(payload.command)
+      if (handler) {
+        try {
+          return handler(payload as Record<string, unknown>)
+        } catch (err: unknown) {
+          return { ok: false, error: (err as Error).message }
         }
-
-        case 'list': {
-          const projects = this.options.loadRecentProjects()
-          return { ok: true, data: projects }
-        }
-
-        case 'rename': {
-          const projectPath = payload.projectPath as string
-          const sessionId = payload.sessionId as string
-          const name = payload.name as string
-          if (!projectPath || !sessionId || !name) return { ok: false, error: 'Missing projectPath, sessionId, or name' }
-          try {
-            this.options.renameSession(projectPath, sessionId, name)
-            return { ok: true }
-          } catch (err: unknown) {
-            return { ok: false, error: (err as Error).message }
-          }
-        }
-
-        case 'info': {
-          const projectPath = payload.projectPath as string
-          const sessionId = payload.sessionId as string
-          const title = payload.title as string
-          const summary = payload.summary as string
-          const lastAction = payload.lastAction as string
-          const actionItem = payload.actionItem as string | undefined
-          if (!projectPath || !sessionId || !title || !summary || !lastAction) {
-            return { ok: false, error: 'Missing required fields (projectPath, sessionId, title, summary, lastAction)' }
-          }
-          try {
-            this.options.updateSessionInfo(projectPath, sessionId, {
-              title,
-              summary,
-              lastAction,
-              actionItem: actionItem || undefined,
-              updatedAt: Date.now(),
-            })
-            return { ok: true }
-          } catch (err: unknown) {
-            return { ok: false, error: (err as Error).message }
-          }
-        }
-
-        case 'open-workspace': {
-          const parentPath = payload.path as string
-          if (!parentPath) return { ok: false, error: 'Missing path' }
-          try {
-            const resolved = path.resolve(parentPath)
-            if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
-              return { ok: false, error: `Not a directory: ${resolved}` }
-            }
-            this.options.openFolderAsWorkspace(resolved)
-            return { ok: true }
-          } catch (err: unknown) {
-            return { ok: false, error: (err as Error).message }
-          }
-        }
-
-        default:
-          return { ok: false, error: `Unknown command: ${payload.command}` }
       }
+      return { ok: false, error: `Unknown command: ${payload.command}` }
     }
 
     // Legacy: treat as notification (backwards compat with old CLI)
@@ -161,7 +89,7 @@ export class NotificationServer {
     return { ok: false, error: 'Unknown payload format' }
   }
 
-  private showNotification(notif: ForgeTermNotification) {
+  showNotification(notif: ForgeTermNotification) {
     const title = notif.title || this.options.getProjectDisplayName(notif.projectPath ?? '') || 'ForgeTerm'
     const body = notif.sessionName
       ? `[${notif.sessionName}] ${notif.message}`

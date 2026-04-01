@@ -4,17 +4,35 @@ A terminal emulator built for multi-project workflows. Open an entire workspace 
 
 ![Three projects auto-arranged on one screen](public/screenshots/feature-auto-arrange.png)
 
+## Install
+
+**Homebrew (recommended):**
+
+```bash
+# App (macOS, Apple Silicon)
+brew install --cask codama-dev/tap/forgeterm
+
+# CLI only
+brew install codama-dev/tap/forgeterm-cli
+```
+
+**Manual:** Download the DMG from the [Releases page](https://github.com/codama-dev/forgeterm/releases), drag to Applications, then run:
+
+```
+xattr -cr /Applications/ForgeTerm.app
+```
+
 ## Features
 
 ### Workspaces and Auto-Arrange
 
-Group related projects into workspaces and open them all at once. ForgeTerm tiles windows automatically - side-by-side for two, master-detail for three, 2x2 grid for four, and so on up to six per screen. If you have multiple monitors, choose which display each workspace targets.
+Group related projects into workspaces and open them all at once. ForgeTerm tiles windows automatically - side-by-side for two, master-detail for three, 2x2 grid for four, and so on up to six per screen. Multi-monitor support lets you choose which display each workspace targets.
 
 ![Workspace management](public/screenshots/feature-workspaces.png)
 
 ### Per-Project Theming
 
-Every project gets its own color theme so you can tell windows apart at a glance. 10 built-in presets, a hex color generator, Peacock sync for VS Code users, and 43 project emojis.
+Every project gets its own color theme so you can tell windows apart at a glance. 10 built-in window presets, 8 terminal color themes (dark, light, midnight, ocean, forest, warm, nord, rose), a hex color generator, Peacock sync for VS Code users, and 43 project emojis.
 
 ![Theme editor](public/screenshots/feature-themes.png)
 
@@ -23,6 +41,41 @@ Every project gets its own color theme so you can tell windows apart at a glance
 Define named terminal sessions that auto-launch when you open a project. Dev server, test watcher, and shell - all running in one window without manual setup.
 
 ![Multiple sessions](public/screenshots/feature-sessions.png)
+
+### Session State Persistence
+
+When you close a window, ForgeTerm saves the state of all sessions - names, commands, running status, and Claude Code conversation IDs. When you reopen the project, everything restarts exactly where it was, including resuming Claude Code sessions.
+
+### CLI Tool (`ft`)
+
+![CLI Connected](public/screenshots/feature-cli.png)
+
+ForgeTerm ships with a CLI that communicates with the running app over a Unix socket. Install it from the app menu or via Homebrew.
+
+```bash
+# Direct commands
+ft notify "Build complete"              # Native notification
+ft rename "Refactoring auth"            # Rename current session
+ft info --title "..." --summary "..."   # Update session info card
+ft open ~/projects/my-app               # Open a project
+ft list                                 # List recent projects
+
+# Manage projects, sessions, workspaces, config, themes
+ft project list | open | remove
+ft session list | add | remove
+ft workspace list | create | delete | rename | open | update
+ft config get [key] [--project <path>]
+ft config set <key> <value>
+ft theme list | set | terminal | favorites
+```
+
+### Claude Code Integration
+
+![Claude connection banner](public/screenshots/feature-claude-banner.png)
+
+ForgeTerm detects Claude Code sessions and auto-resumes them on restart. A one-click connection system keeps Claude's instructions in sync with the latest CLI commands - ForgeTerm shows a banner when setup is needed, and clicking it copies the setup prompt to your clipboard.
+
+Extra CLI args for Claude resume (like `--dangerously-skip-permissions`) can be configured per project via `claudeResumeArgs` in `.forgeterm.json`.
 
 ### Import from VS Code Project Manager
 
@@ -47,17 +100,13 @@ Drop a `.forgeterm.json` in any project to define startup sessions, themes, and 
     { "name": "Shell" }
   ],
   "window": {
-    "emoji": "🚀",
+    "emoji": "rocket",
     "themeName": "ocean"
-  }
+  },
+  "terminalTheme": "nord",
+  "claudeResumeArgs": ["--dangerously-skip-permissions"]
 }
 ```
-
-## Download
-
-**[Download ForgeTerm v0.2.0 for macOS (Apple Silicon)](https://github.com/codama-dev/forgeterm/releases/download/v0.2.0/ForgeTerm-Mac-0.2.0.dmg)**
-
-See all releases on the [Releases page](https://github.com/codama-dev/forgeterm/releases). For Windows, Linux, or Intel Mac - see [Build from Source](#build-from-source) below.
 
 ## Keyboard Shortcuts
 
@@ -65,6 +114,8 @@ See all releases on the [Releases page](https://github.com/codama-dev/forgeterm/
 |---|---|
 | Cmd+N / Cmd+T | New session |
 | Cmd+1-9 | Switch to session |
+| Cmd+W | Close session |
+| Cmd+F | Find in terminal |
 | Cmd+K | Clear terminal |
 | Cmd+P | Project switcher |
 | Cmd+O | Open folder |
@@ -72,11 +123,8 @@ See all releases on the [Releases page](https://github.com/codama-dev/forgeterm/
 | Cmd+, | Project settings |
 | Cmd+Shift+T | Theme editor |
 | Cmd+Shift+= / - | Lighten / darken theme |
-| Cmd+W | Close window |
 
 ## Build from Source
-
-Pre-built DMGs are available for macOS Apple Silicon. For **Windows, Linux, or Intel Mac**, clone the repo and build locally - Electron supports all platforms natively.
 
 ```bash
 git clone https://github.com/codama-dev/forgeterm.git
@@ -96,7 +144,7 @@ pnpm build
 
 Three-layer Electron app:
 
-- **Main process** (`electron/`) - App lifecycle, window management, PTY sessions via node-pty
+- **Main process** (`electron/`) - App lifecycle, window management, PTY sessions via node-pty, CLI socket server
 - **Preload bridge** (`electron/preload.ts`) - Typed IPC interface exposed as `window.forgeterm`
 - **Renderer** (`src/`) - React + Zustand + xterm.js
 
@@ -126,4 +174,4 @@ Check the [open issues](https://github.com/codama-dev/forgeterm/issues) for thin
 
 ---
 
-Made with ❤️ by the [codama.dev](https://codama.dev) team
+Made with love by the [codama.dev](https://codama.dev) team

@@ -64,7 +64,7 @@ You can also set `dragDropBehavior` in `.forgeterm.json`:
 
 ### Per-Project Theming
 
-Every project gets its own color theme so you can tell windows apart at a glance. Choose from 10 built-in presets (Midnight, Ocean, Forest, Sunset, Lavender, Rose, Ember, Mint, Graphite, Gold), generate a theme from any hex color, or save favorites for reuse.
+Every project gets its own color theme so you can tell windows apart at a glance. Choose from 10 built-in window presets (Midnight, Ocean, Forest, Sunset, Lavender, Rose, Ember, Mint, Graphite, Gold), and 8 terminal color themes (Dark, Light, Midnight, Ocean, Forest, Warm, Nord, Rose). Generate a theme from any hex color, or save favorites for reuse.
 
 Already using Peacock in VS Code? ForgeTerm reads your `peacock.color` on first open. If no theme exists, one is picked at random so every project looks different from the start. Fine-tune brightness anytime with ⌘⇧= and ⌘⇧-.
 
@@ -79,6 +79,12 @@ Define named terminal sessions in Project Settings (⌘,) that auto-launch when 
 Sessions are saved in `.forgeterm.json` so they travel with your repo. Toggle auto-start per session, reorder them, or add new ones on the fly.
 
 ![Multiple named sessions with auto-start commands](screenshots/feature-sessions.png)
+
+### Session State Persistence
+
+When you close a window or quit ForgeTerm, the state of all sessions is saved - names, commands, running status, and Claude Code conversation IDs. When you reopen the project, everything restarts exactly where it was.
+
+Claude Code sessions are automatically resumed with `claude -r {sessionId}`. You can configure extra args per project (like `--dangerously-skip-permissions`) by setting `claudeResumeArgs` in `.forgeterm.json` or via Project Settings.
 
 ### Import from Project Manager
 
@@ -104,62 +110,97 @@ Cycle between three sidebar modes with ⌘B:
 
 ### Project Settings
 
-Configure everything per-project with ⌘,. Set the project name, assign it to a workspace, and manage startup sessions - all saved to `.forgeterm.json` in your project root.
+Configure everything per-project with ⌘,. Set the project name, assign it to a workspace, manage startup sessions, set drag & drop behavior, and configure Claude Code resume args - all saved to `.forgeterm.json` in your project root.
 
 ![Project settings with session configuration](screenshots/feature-project-settings.png)
+
+### CLI Tool (`ft`)
+
+![CLI Connected modal](screenshots/feature-cli.png)
+
+ForgeTerm ships with a command-line tool that communicates with the running app over a Unix socket. Install it from the sidebar's CLI button (>_) or via Homebrew (`brew install codama-dev/tap/forgeterm-cli`). The `ft` alias is installed automatically alongside `forgeterm`.
+
+**Direct commands (work from any terminal):**
+
+```bash
+ft notify "Build complete"              # Native macOS notification
+ft rename "Refactoring auth"            # Rename current session
+ft info --title "..." --summary "..."   # Update session info card
+ft open ~/projects/my-app               # Open a project
+ft list                                 # List recent projects
+ft open-workspace ~/projects            # Open folder as workspace
+```
+
+**Full command reference:**
+
+```bash
+ft project list                         # List recent projects
+ft project open <path>                  # Open/focus a project
+ft project remove <path>               # Remove from recent list
+
+ft session list [--project <path>]      # List sessions
+ft session add <name> [--command ".."]  # Add to project config
+ft session remove <name>               # Remove from config
+
+ft workspace list                       # List workspaces
+ft workspace create <name>              # Create workspace
+ft workspace delete <name>              # Delete workspace
+ft workspace rename <old> <new>         # Rename workspace
+ft workspace add-project <ws> <path>    # Add project
+ft workspace remove-project <ws> <path> # Remove project
+ft workspace open <name>                # Open all projects
+ft workspace update <name> [options]    # Update metadata
+
+ft config get [key] [--project <path>]  # Read config
+ft config set <key> <value>             # Set config value
+
+ft theme list                           # List available themes
+ft theme set <name>                     # Apply window theme
+ft theme terminal <name>                # Set terminal theme
+ft theme favorites                      # List saved favorites
+```
+
+When run inside a ForgeTerm session, commands automatically detect the current project and session via environment variables (`FORGETERM_PROJECT_PATH`, `FORGETERM_SESSION_ID`). Clicking a notification focuses the correct window and session.
+
+### Claude Code Integration
+
+![Claude connection banner](screenshots/feature-claude-banner.png)
+
+ForgeTerm has built-in support for Claude Code:
+
+- **Auto-resume** - Claude Code sessions are detected and resumed when you reopen a project
+- **Extra args** - Configure per-project args (like `--dangerously-skip-permissions`) via `claudeResumeArgs` in `.forgeterm.json`
+- **Connection sync** - ForgeTerm detects if Claude Code has been configured with the latest CLI commands. A banner appears when setup is needed - click it to copy the setup prompt to your clipboard, then paste it to Claude Code
+- **Session info** - Claude Code can use `ft rename`, `ft info`, and `ft notify` to keep you informed about what it's doing
 
 ### Notifications
 
 Get notified when long-running commands finish - builds, deploys, test suites, AI agents. Notifications are native macOS alerts that show up even when ForgeTerm is in the background. Clicking a notification focuses the right window and session.
 
-**Setup:**
-
-1. Go to **ForgeTerm > Install Command Line Tool...** in the menu bar
-2. This installs the `forgeterm` command to `/usr/local/bin/forgeterm`
-3. That's it - you can now send notifications from any ForgeTerm session
-
 **Usage:**
 
 ```bash
-# Open a project (adds to recent list, focuses if already open)
-forgeterm open ~/projects/my-app
-forgeterm open .
-
-# List your recent projects
-forgeterm list
-forgeterm list --json
-
 # Send a notification
-forgeterm notify "Build complete"
-forgeterm notify "All 47 tests passed" --title "Test Suite"
-forgeterm notify "Deploy done" --no-sound
+ft notify "Build complete"
+ft notify "All 47 tests passed" --title "Test Suite"
+ft notify "Deploy done" --no-sound
 
 # Chain with any command
-pnpm build && forgeterm notify "Build done" || forgeterm notify "Build failed"
-npm test && forgeterm notify "Tests passed"
-
-# Show help
-forgeterm help
+pnpm build && ft notify "Done" || ft notify "Failed"
 ```
 
 **With AI agents (Claude Code, etc.):**
 
-Add this to your project's `CLAUDE.md`:
-```
-When you finish a task, run: forgeterm notify "Done"
-This sends a native notification via ForgeTerm. It automatically knows which project and session you're in. No config needed.
-```
-
-The agent will send a notification when it completes work, so you can switch to other tasks without watching the terminal.
+Click the Claude connection banner in ForgeTerm to copy the setup prompt. Paste it to Claude Code - it will configure itself to use `ft rename`, `ft info`, and `ft notify` throughout your sessions. ForgeTerm re-checks on every update, so Claude always has the latest commands.
 
 **How it works:**
 
-ForgeTerm runs a local socket server. The `forgeterm` CLI communicates with the running app through this socket. When run inside a ForgeTerm session, commands automatically know which project and session they belong to (via environment variables), so clicking a notification focuses the correct window and session tab. No network, no external services - everything stays local.
+ForgeTerm runs a local socket server. The `ft` CLI communicates with the running app through this socket. No network, no external services - everything stays local.
 
 ### Cross-Platform
 
-Pre-built downloads are available for macOS Apple Silicon. Running Windows, Linux, or an Intel Mac? Just clone the repo and run `pnpm build` - Electron supports all platforms natively, so you can build ForgeTerm for your OS in minutes.
+Pre-built downloads are available for macOS Apple Silicon via Homebrew or the Releases page. Running Windows, Linux, or an Intel Mac? Just clone the repo and run `pnpm build` - Electron supports all platforms natively.
 
 ---
 
-Made with ❤️ by the [codama.dev](https://codama.dev) team
+Made with love by the [codama.dev](https://codama.dev) team

@@ -3,6 +3,7 @@ import type { ForgeTermConfig, FavoriteTheme } from '../../shared/types'
 import {
   PRESET_THEMES,
   PROJECT_EMOJIS,
+  TERMINAL_THEMES,
   generateWindowTheme,
   getTerminalTheme,
   type PresetTheme,
@@ -103,7 +104,7 @@ function FavoriteCard({
 }) {
   const w = fav.window
   const gradient = `linear-gradient(to right, ${w.titlebarBackground}, ${w.titlebarBackgroundEnd})`
-  const termBg = fav.terminalMode === 'light' ? '#f8fafc' : '#0f172a'
+  const termBg = (TERMINAL_THEMES[fav.terminalMode] || TERMINAL_THEMES.dark).background
   return (
     <button
       className={`theme-card ${selected ? 'selected' : ''}`}
@@ -168,7 +169,7 @@ function MiniPreview({ windowTheme, terminalBg }: { windowTheme: WindowTheme; te
 export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditorProps) {
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null)
   const [selectedFavorite, setSelectedFavorite] = useState<string | null>(null)
-  const [terminalMode, setTerminalMode] = useState<'dark' | 'light'>('dark')
+  const [terminalMode, setTerminalMode] = useState<string>('dark')
   const [emoji, setEmoji] = useState<string>('')
   const [generateColor, setGenerateColor] = useState('#38bdf8')
   const [showCustom, setShowCustom] = useState(false)
@@ -233,7 +234,7 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
     return custom
   })()
 
-  const terminalBg = terminalMode === 'light' ? '#f8fafc' : '#0f172a'
+  const terminalBg = (TERMINAL_THEMES[terminalMode] || TERMINAL_THEMES.dark).background
 
   // Send preview to parent and clear on unmount
   const sendPreview = useCallback((theme: WindowTheme | null) => {
@@ -426,22 +427,17 @@ export function ThemeEditor({ config, onSave, onCancel, onPreview }: ThemeEditor
         <div className="theme-section">
           <div className="theme-section-title">Terminal</div>
           <div className="terminal-mode-row">
-            <button
-              className={`terminal-mode-btn ${terminalMode === 'dark' ? 'active' : ''}`}
-              onClick={() => setTerminalMode('dark')}
-              style={terminalMode === 'dark' ? { borderColor: activeTheme.accentColor } : undefined}
-            >
-              <span className="mode-swatch" style={{ background: '#0f172a' }} />
-              Dark
-            </button>
-            <button
-              className={`terminal-mode-btn ${terminalMode === 'light' ? 'active' : ''}`}
-              onClick={() => setTerminalMode('light')}
-              style={terminalMode === 'light' ? { borderColor: activeTheme.accentColor } : undefined}
-            >
-              <span className="mode-swatch" style={{ background: '#f8fafc', border: '1px solid #cbd5e1' }} />
-              Light
-            </button>
+            {Object.entries(TERMINAL_THEMES).map(([id, theme]) => (
+              <button
+                key={id}
+                className={`terminal-mode-btn ${terminalMode === id ? 'active' : ''}`}
+                onClick={() => setTerminalMode(id)}
+                style={terminalMode === id ? { borderColor: activeTheme.accentColor } : undefined}
+              >
+                <span className="mode-swatch" style={{ background: theme.background, border: id === 'light' ? '1px solid #cbd5e1' : undefined }} />
+                {id.charAt(0).toUpperCase() + id.slice(1)}
+              </button>
+            ))}
           </div>
         </div>
 

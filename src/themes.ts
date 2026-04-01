@@ -99,40 +99,129 @@ export function generateWindowTheme(accentHex: string): WindowTheme {
   }
 }
 
-// --- Terminal themes (only dark and light) ---
+// --- Terminal themes ---
 
-const TERMINAL_DARK: TerminalColors = {
-  background: '#0f172a',
-  foreground: '#e2e8f0',
-  cursor: '#38bdf8',
-  selection: 'rgba(56, 189, 248, 0.3)',
-  black: '#1e293b',
-  red: '#f87171',
-  green: '#4ade80',
-  yellow: '#facc15',
-  blue: '#60a5fa',
-  magenta: '#c084fc',
-  cyan: '#22d3ee',
-  white: '#f1f5f9',
+export const TERMINAL_THEMES: Record<string, TerminalColors> = {
+  dark: {
+    background: '#0f172a',
+    foreground: '#e2e8f0',
+    cursor: '#38bdf8',
+    selection: 'rgba(56, 189, 248, 0.3)',
+    black: '#1e293b',
+    red: '#f87171',
+    green: '#4ade80',
+    yellow: '#facc15',
+    blue: '#60a5fa',
+    magenta: '#c084fc',
+    cyan: '#22d3ee',
+    white: '#f1f5f9',
+  },
+  light: {
+    background: '#f8fafc',
+    foreground: '#1e293b',
+    cursor: '#0284c7',
+    selection: 'rgba(2, 132, 199, 0.2)',
+    black: '#334155',
+    red: '#dc2626',
+    green: '#16a34a',
+    yellow: '#ca8a04',
+    blue: '#2563eb',
+    magenta: '#9333ea',
+    cyan: '#0891b2',
+    white: '#f1f5f9',
+  },
+  midnight: {
+    background: '#0a0e1a',
+    foreground: '#c8d6e5',
+    cursor: '#48dbfb',
+    selection: 'rgba(72, 219, 251, 0.25)',
+    black: '#141a2e',
+    red: '#ff6b6b',
+    green: '#55efc4',
+    yellow: '#feca57',
+    blue: '#54a0ff',
+    magenta: '#a29bfe',
+    cyan: '#00d2d3',
+    white: '#dfe6e9',
+  },
+  ocean: {
+    background: '#0b1622',
+    foreground: '#b8d4e3',
+    cursor: '#00b894',
+    selection: 'rgba(0, 184, 148, 0.25)',
+    black: '#152238',
+    red: '#e17055',
+    green: '#00b894',
+    yellow: '#fdcb6e',
+    blue: '#74b9ff',
+    magenta: '#a29bfe',
+    cyan: '#81ecec',
+    white: '#dfe6e9',
+  },
+  forest: {
+    background: '#0d1a0f',
+    foreground: '#b8d4b0',
+    cursor: '#2ecc71',
+    selection: 'rgba(46, 204, 113, 0.25)',
+    black: '#1a2e1c',
+    red: '#e74c3c',
+    green: '#2ecc71',
+    yellow: '#f1c40f',
+    blue: '#3498db',
+    magenta: '#9b59b6',
+    cyan: '#1abc9c',
+    white: '#ecf0f1',
+  },
+  warm: {
+    background: '#1a120b',
+    foreground: '#d4c5b0',
+    cursor: '#e67e22',
+    selection: 'rgba(230, 126, 34, 0.25)',
+    black: '#2c1e12',
+    red: '#e74c3c',
+    green: '#27ae60',
+    yellow: '#f39c12',
+    blue: '#2980b9',
+    magenta: '#8e44ad',
+    cyan: '#16a085',
+    white: '#ecf0f1',
+  },
+  nord: {
+    background: '#2e3440',
+    foreground: '#d8dee9',
+    cursor: '#88c0d0',
+    selection: 'rgba(136, 192, 208, 0.25)',
+    black: '#3b4252',
+    red: '#bf616a',
+    green: '#a3be8c',
+    yellow: '#ebcb8b',
+    blue: '#81a1c1',
+    magenta: '#b48ead',
+    cyan: '#88c0d0',
+    white: '#e5e9f0',
+  },
+  rose: {
+    background: '#1a0d12',
+    foreground: '#d4b8c2',
+    cursor: '#e84393',
+    selection: 'rgba(232, 67, 147, 0.25)',
+    black: '#2c1420',
+    red: '#fd79a8',
+    green: '#55efc4',
+    yellow: '#ffeaa7',
+    blue: '#74b9ff',
+    magenta: '#a29bfe',
+    cyan: '#81ecec',
+    white: '#ffeef5',
+  },
 }
 
-const TERMINAL_LIGHT: TerminalColors = {
-  background: '#f8fafc',
-  foreground: '#1e293b',
-  cursor: '#0284c7',
-  selection: 'rgba(2, 132, 199, 0.2)',
-  black: '#334155',
-  red: '#dc2626',
-  green: '#16a34a',
-  yellow: '#ca8a04',
-  blue: '#2563eb',
-  magenta: '#9333ea',
-  cyan: '#0891b2',
-  white: '#f1f5f9',
+export function getTerminalTheme(mode: string): TerminalColors {
+  return { ...(TERMINAL_THEMES[mode] || TERMINAL_THEMES.dark) }
 }
 
-export function getTerminalTheme(mode: 'dark' | 'light'): TerminalColors {
-  return mode === 'light' ? { ...TERMINAL_LIGHT } : { ...TERMINAL_DARK }
+export function getTerminalThemeNames(): string[] {
+  return Object.keys(TERMINAL_THEMES)
 }
 
 // --- Preset themes (brightened for better differentiation) ---
@@ -150,7 +239,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#8faabe',
       buttonBackground: '#1c2d4d',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'ocean',
@@ -164,7 +253,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#7ec8d8',
       buttonBackground: '#143b4d',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'forest',
@@ -178,7 +267,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#80c49a',
       buttonBackground: '#193d2c',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'sunset',
@@ -192,7 +281,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#c8a882',
       buttonBackground: '#422c1b',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'lavender',
@@ -206,7 +295,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#a898c0',
       buttonBackground: '#2a2248',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'rose',
@@ -220,7 +309,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#c89aa6',
       buttonBackground: '#42202e',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'ember',
@@ -234,7 +323,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#c89898',
       buttonBackground: '#421e1e',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'mint',
@@ -248,7 +337,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#7ec4b8',
       buttonBackground: '#163d36',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'graphite',
@@ -262,7 +351,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#909090',
       buttonBackground: '#303030',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
   {
     id: 'gold',
@@ -276,7 +365,7 @@ export const PRESET_THEMES: PresetTheme[] = [
       sidebarForeground: '#c8b878',
       buttonBackground: '#42361b',
     },
-    terminal: TERMINAL_DARK,
+    terminal: TERMINAL_THEMES.dark,
   },
 ]
 

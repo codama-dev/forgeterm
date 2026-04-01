@@ -227,6 +227,60 @@
   50% { box-shadow: 0 0 10px color-mix(in srgb, var(--cli-glow-color, #38bdf8) 27%, transparent); }
 }
 
+/* Claude connection banner */
+.claude-connection-banner {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, box-shadow 0.2s;
+  white-space: nowrap;
+  animation: claude-pulse 4s ease-in-out infinite;
+}
+
+.claude-connection-banner:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--banner-color, #38bdf8) 30%, transparent);
+}
+
+.claude-banner-action {
+  font-size: 10px;
+  opacity: 0.5;
+  margin-left: 4px;
+}
+
+.claude-banner-dismiss {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.3);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 2px;
+  margin-left: 4px;
+  line-height: 1;
+}
+
+.claude-banner-dismiss:hover {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+@keyframes claude-pulse {
+  0%, 100% { box-shadow: 0 0 4px color-mix(in srgb, var(--banner-color, #38bdf8) 10%, transparent); }
+  50% { box-shadow: 0 0 8px color-mix(in srgb, var(--banner-color, #38bdf8) 20%, transparent); }
+}
+
 /* CLI install modal */
 .cli-install-modal {
   width: 440px;
@@ -2250,16 +2304,17 @@
 /* Terminal mode */
 .terminal-mode-row {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .terminal-mode-btn {
-  flex: 1;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 6px 10px;
   background: #0f172a;
   border: 2px solid #1e293b;
   border-radius: 8px;

@@ -6,11 +6,11 @@ import { execSync } from 'node:child_process'
 import { PtyManager } from './ptyManager'
 import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext } from '../shared/types'
 import { UpdateManager } from './updater'
-import { NotificationServer, getSocketPath } from './notificationServer'
+import { NotificationServer, getSocketPath, type CommandHandler } from './notificationServer'
 import { isFinderIntegrationInstalled, installFinderIntegration, uninstallFinderIntegration } from './finderIntegration'
 import { RemoteServer } from './remoteServer'
 import type { RemoteStatus } from './remoteServer'
-import { generateWindowTheme, getTerminalTheme, PRESET_THEMES } from '../src/themes'
+import { generateWindowTheme, getTerminalTheme, PRESET_THEMES, TERMINAL_THEMES, getTerminalThemeNames } from '../src/themes'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -56,33 +56,377 @@ interface WindowActivityInfo {
   sessions: SessionStatusReport[]
 }
 const windowActivities = new Map<number, WindowActivityInfo>()
-const notificationServer = new NotificationServer({
-  findWindowForProject,
-  getProjectDisplayName: (projectPath: string) => {
-    if (!projectPath) return null
-    const config = loadConfig(projectPath)
-    return config?.projectName || path.basename(projectPath)
-  },
-  focusOrCreateWindow: (projectPath: string) => {
-    focusOrCreateWindow(projectPath)
-  },
-  loadRecentProjects,
-  openFolderAsWorkspace,
-  renameSession: (projectPath: string, sessionId: string, name: string) => {
+
+function getFavoriteThemesPath(): string {
+  return path.join(app.getPath('userData'), 'favorite-themes.json')
+}
+
+// Deep get/set for dot-notation keys (e.g. "window.emoji")
+function deepGet(obj: Record<string, unknown>, key: string): unknown {
+  const parts = key.split('.')
+  let current: unknown = obj
+  for (const part of parts) {
+    if (current == null || typeof current !== 'object') return undefined
+    current = (current as Record<string, unknown>)[part]
+  }
+  return current
+}
+
+function deepSet(obj: Record<string, unknown>, key: string, value: unknown): void {
+  const parts = key.split('.')
+  let current: Record<string, unknown> = obj
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (current[parts[i]] == null || typeof current[parts[i]] !== 'object') {
+      current[parts[i]] = {}
+    }
+    current = current[parts[i]] as Record<string, unknown>
+  }
+  current[parts[parts.length - 1]] = value
+}
+
+function buildCliHandlers(): Map<string, CommandHandler> {
+  const handlers = new Map<string, CommandHandler>()
+
+  // --- Existing commands ---
+
+  handlers.set('notify', (p) => {
+    notificationServer.showNotification(p as unknown as import('../shared/types').ForgeTermNotification)
+    return { ok: true }
+  })
+
+  handlers.set('open', (p) => {
+    const projectPath = p.path as string
+    if (!projectPath) return { ok: false, error: 'Missing path' }
+    const resolved = path.resolve(projectPath)
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      return { ok: false, error: `Not a directory: ${resolved}` }
+    }
+    focusOrCreateWindow(resolved)
+    return { ok: true }
+  })
+
+  handlers.set('list', (p) => {
+    const projects = loadRecentProjects()
+    return { ok: true, data: projects }
+  })
+
+  handlers.set('rename', (p) => {
+    const projectPath = p.projectPath as string
+    const sessionId = p.sessionId as string
+    const name = p.name as string
+    if (!projectPath || !sessionId || !name) return { ok: false, error: 'Missing projectPath, sessionId, or name' }
     const win = findWindowForProject(projectPath)
     if (win && !win.isDestroyed()) {
       const state = windowStates.get(win.id)
       state?.ptyManager.rename(sessionId, name)
       win.webContents.send('session:renamed', sessionId, name)
     }
-  },
-  updateSessionInfo: (projectPath: string, sessionId: string, info: SessionContext) => {
+    return { ok: true }
+  })
+
+  handlers.set('info', (p) => {
+    const projectPath = p.projectPath as string
+    const sessionId = p.sessionId as string
+    const title = p.title as string
+    const summary = p.summary as string
+    const lastAction = p.lastAction as string
+    const actionItem = p.actionItem as string | undefined
+    if (!projectPath || !sessionId || !title || !summary || !lastAction) {
+      return { ok: false, error: 'Missing required fields (projectPath, sessionId, title, summary, lastAction)' }
+    }
     const win = findWindowForProject(projectPath)
     if (win && !win.isDestroyed()) {
       const state = windowStates.get(win.id)
+      const info: SessionContext = { title, summary, lastAction, actionItem: actionItem || undefined, updatedAt: Date.now() }
       state?.ptyManager.setSessionInfo(sessionId, info)
       win.webContents.send('session:info-updated', sessionId, info)
     }
+    return { ok: true }
+  })
+
+  handlers.set('open-workspace', (p) => {
+    const parentPath = p.path as string
+    if (!parentPath) return { ok: false, error: 'Missing path' }
+    const resolved = path.resolve(parentPath)
+    if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) {
+      return { ok: false, error: `Not a directory: ${resolved}` }
+    }
+    openFolderAsWorkspace(resolved)
+    return { ok: true }
+  })
+
+  // --- Project commands ---
+
+  handlers.set('project-list', (p) => {
+    const projects = loadRecentProjects()
+    return { ok: true, data: projects }
+  })
+
+  handlers.set('project-open', handlers.get('open')!)
+
+  handlers.set('project-remove', (p) => {
+    const projectPath = p.path as string
+    if (!projectPath) return { ok: false, error: 'Missing path' }
+    const resolved = path.resolve(projectPath)
+    const projects = loadRecentProjects().filter((pr) => pr.path !== resolved)
+    fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
+    removeProjectFromWorkspace(resolved)
+    return { ok: true }
+  })
+
+  // --- Session commands ---
+
+  handlers.set('session-list', (p) => {
+    const projectPath = p.projectPath as string
+    if (!projectPath) return { ok: false, error: 'Missing projectPath' }
+    const resolved = path.resolve(projectPath)
+    // Try live sessions first
+    const win = findWindowForProject(resolved)
+    if (win && !win.isDestroyed()) {
+      const state = windowStates.get(win.id)
+      if (state) {
+        const sessions = state.ptyManager.getAllSessions()
+        return { ok: true, data: sessions.map(s => ({ id: s.id, name: s.name, command: s.command, running: s.running })) }
+      }
+    }
+    // Fall back to config sessions
+    const config = loadConfig(resolved)
+    return { ok: true, data: config?.sessions || [] }
+  })
+
+  handlers.set('session-add', (p) => {
+    const projectPath = p.projectPath as string
+    const name = p.name as string
+    const command = p.command as string | undefined
+    const autoStart = p.autoStart as boolean | undefined
+    if (!projectPath || !name) return { ok: false, error: 'Missing projectPath or name' }
+    const resolved = path.resolve(projectPath)
+    const config = loadConfig(resolved) || {}
+    if (!config.sessions) config.sessions = []
+    if (config.sessions.find(s => s.name === name)) {
+      return { ok: false, error: `Session "${name}" already exists` }
+    }
+    config.sessions.push({ name, command, autoStart })
+    saveConfig(resolved, config)
+    notifyConfigChanged(resolved)
+    return { ok: true }
+  })
+
+  handlers.set('session-remove', (p) => {
+    const projectPath = p.projectPath as string
+    const name = p.name as string
+    if (!projectPath || !name) return { ok: false, error: 'Missing projectPath or name' }
+    const resolved = path.resolve(projectPath)
+    const config = loadConfig(resolved)
+    if (!config?.sessions) return { ok: false, error: 'No sessions configured' }
+    config.sessions = config.sessions.filter(s => s.name !== name)
+    saveConfig(resolved, config)
+    notifyConfigChanged(resolved)
+    return { ok: true }
+  })
+
+  handlers.set('session-rename', (p) => {
+    const projectPath = p.projectPath as string
+    const oldName = p.oldName as string
+    const newName = p.newName as string
+    if (!projectPath || !oldName || !newName) return { ok: false, error: 'Missing projectPath, oldName, or newName' }
+    const resolved = path.resolve(projectPath)
+    const config = loadConfig(resolved)
+    if (!config?.sessions) return { ok: false, error: 'No sessions configured' }
+    const session = config.sessions.find(s => s.name === oldName)
+    if (!session) return { ok: false, error: `Session "${oldName}" not found` }
+    session.name = newName
+    saveConfig(resolved, config)
+    notifyConfigChanged(resolved)
+    return { ok: true }
+  })
+
+  // --- Workspace commands ---
+
+  handlers.set('workspace-list', () => {
+    return { ok: true, data: loadWorkspaces() }
+  })
+
+  handlers.set('workspace-create', (p) => {
+    const name = p.name as string
+    if (!name) return { ok: false, error: 'Missing name' }
+    const workspaces = loadWorkspaces()
+    if (workspaces.find(w => w.name === name)) {
+      return { ok: false, error: `Workspace "${name}" already exists` }
+    }
+    workspaces.push({ name, projects: [] })
+    saveWorkspaces(workspaces)
+    return { ok: true }
+  })
+
+  handlers.set('workspace-delete', (p) => {
+    const name = p.name as string
+    if (!name) return { ok: false, error: 'Missing name' }
+    const workspaces = loadWorkspaces().filter(w => w.name !== name)
+    saveWorkspaces(workspaces)
+    return { ok: true }
+  })
+
+  handlers.set('workspace-rename', (p) => {
+    const oldName = p.oldName as string
+    const newName = p.newName as string
+    if (!oldName || !newName) return { ok: false, error: 'Missing oldName or newName' }
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find(w => w.name === oldName)
+    if (!ws) return { ok: false, error: `Workspace "${oldName}" not found` }
+    ws.name = newName
+    saveWorkspaces(workspaces)
+    // Update references in recent projects
+    const projects = loadRecentProjects().map(pr => pr.workspace === oldName ? { ...pr, workspace: newName } : pr)
+    fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
+    return { ok: true }
+  })
+
+  handlers.set('workspace-add-project', (p) => {
+    const workspaceName = p.name as string
+    const projectPath = p.projectPath as string
+    if (!workspaceName || !projectPath) return { ok: false, error: 'Missing name or projectPath' }
+    setProjectWorkspace(path.resolve(projectPath), workspaceName)
+    return { ok: true }
+  })
+
+  handlers.set('workspace-remove-project', (p) => {
+    const workspaceName = p.name as string
+    const projectPath = p.projectPath as string
+    if (!workspaceName || !projectPath) return { ok: false, error: 'Missing name or projectPath' }
+    const resolved = path.resolve(projectPath)
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find(w => w.name === workspaceName)
+    if (ws) {
+      ws.projects = ws.projects.filter(pr => pr !== resolved)
+      const cleaned = workspaces.filter(w => w.projects.length > 0)
+      saveWorkspaces(cleaned)
+    }
+    return { ok: true }
+  })
+
+  handlers.set('workspace-open', (p) => {
+    const name = p.name as string
+    if (!name) return { ok: false, error: 'Missing name' }
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find(w => w.name === name)
+    if (!ws) return { ok: false, error: `Workspace "${name}" not found` }
+    const enabled = ws.projects.filter(pr => !(ws.disabledProjects || []).includes(pr))
+    for (const projectPath of enabled) {
+      focusOrCreateWindow(projectPath)
+    }
+    return { ok: true }
+  })
+
+  handlers.set('workspace-update', (p) => {
+    const name = p.name as string
+    if (!name) return { ok: false, error: 'Missing name' }
+    const workspaces = loadWorkspaces()
+    const ws = workspaces.find(w => w.name === name)
+    if (!ws) return { ok: false, error: `Workspace "${name}" not found` }
+    if (p.emoji !== undefined) ws.emoji = p.emoji as string
+    if (p.description !== undefined) ws.description = p.description as string
+    if (p.accentColor !== undefined) ws.accentColor = p.accentColor as string
+    if (p.defaultCommand !== undefined) ws.defaultCommand = p.defaultCommand as string
+    saveWorkspaces(workspaces)
+    return { ok: true }
+  })
+
+  // --- Config commands ---
+
+  handlers.set('config-get', (p) => {
+    const projectPath = p.projectPath as string
+    if (!projectPath) return { ok: false, error: 'Missing projectPath' }
+    const resolved = path.resolve(projectPath)
+    const config = loadConfig(resolved)
+    if (!config) return { ok: true, data: {} }
+    const key = p.key as string | undefined
+    if (key) {
+      return { ok: true, data: deepGet(config as unknown as Record<string, unknown>, key) }
+    }
+    return { ok: true, data: config }
+  })
+
+  handlers.set('config-set', (p) => {
+    const projectPath = p.projectPath as string
+    const key = p.key as string
+    const rawValue = p.value
+    if (!projectPath || !key) return { ok: false, error: 'Missing projectPath or key' }
+    const resolved = path.resolve(projectPath)
+    const config = (loadConfig(resolved) || {}) as Record<string, unknown>
+    // Parse value: try JSON, fall back to string
+    let value: unknown = rawValue
+    if (typeof rawValue === 'string') {
+      try { value = JSON.parse(rawValue) } catch { value = rawValue }
+    }
+    deepSet(config, key, value)
+    saveConfig(resolved, config as ForgeTermConfig)
+    notifyConfigChanged(resolved)
+    return { ok: true }
+  })
+
+  // --- Theme commands ---
+
+  handlers.set('theme-list', () => {
+    const presets = PRESET_THEMES.map(t => ({ id: t.id, name: t.name }))
+    const terminal = getTerminalThemeNames()
+    return { ok: true, data: { presets, terminalThemes: terminal } }
+  })
+
+  handlers.set('theme-set', (p) => {
+    const projectPath = p.projectPath as string
+    const themeName = p.name as string
+    if (!projectPath || !themeName) return { ok: false, error: 'Missing projectPath or name' }
+    const resolved = path.resolve(projectPath)
+    const preset = PRESET_THEMES.find(t => t.id === themeName || t.name.toLowerCase() === themeName.toLowerCase())
+    if (!preset) return { ok: false, error: `Theme "${themeName}" not found. Use theme-list to see available themes.` }
+    const config = (loadConfig(resolved) || {}) as ForgeTermConfig
+    config.window = { ...preset.window, themeName: preset.id }
+    config.theme = { ...preset.terminal }
+    saveConfig(resolved, config)
+    notifyConfigChanged(resolved)
+    return { ok: true }
+  })
+
+  handlers.set('terminal-theme-set', (p) => {
+    const projectPath = p.projectPath as string
+    const themeName = p.name as string
+    if (!projectPath || !themeName) return { ok: false, error: 'Missing projectPath or name' }
+    if (!TERMINAL_THEMES[themeName]) return { ok: false, error: `Terminal theme "${themeName}" not found. Available: ${getTerminalThemeNames().join(', ')}` }
+    const resolved = path.resolve(projectPath)
+    const config = (loadConfig(resolved) || {}) as ForgeTermConfig
+    config.terminalTheme = themeName
+    saveConfig(resolved, config)
+    notifyConfigChanged(resolved)
+    return { ok: true }
+  })
+
+  handlers.set('theme-favorites', () => {
+    try {
+      const raw = fs.readFileSync(getFavoriteThemesPath(), 'utf-8')
+      return { ok: true, data: JSON.parse(raw) as FavoriteTheme[] }
+    } catch {
+      return { ok: true, data: [] }
+    }
+  })
+
+  return handlers
+}
+
+function notifyConfigChanged(projectPath: string) {
+  const win = findWindowForProject(projectPath)
+  if (win && !win.isDestroyed()) {
+    win.webContents.send('config:changed')
+  }
+}
+
+const notificationServer = new NotificationServer({
+  handlers: buildCliHandlers(),
+  findWindowForProject,
+  getProjectDisplayName: (projectPath: string) => {
+    if (!projectPath) return null
+    const config = loadConfig(projectPath)
+    return config?.projectName || path.basename(projectPath)
   },
 })
 
@@ -195,6 +539,120 @@ function removeProjectFromWorkspace(projectPath: string) {
 function getWorkspaceForProject(projectPath: string): string | undefined {
   const workspaces = loadWorkspaces()
   return workspaces.find((ws) => ws.projects.includes(projectPath))?.name
+}
+
+// --- Claude Code connection check ---
+
+interface ClaudeConnectionStatus {
+  connected: boolean
+  currentVersion: string
+  promptedVersion: string | null
+  needsUpdate: boolean
+}
+
+function checkClaudeConnection(): ClaudeConnectionStatus {
+  const currentVersion = app.getVersion()
+  const claudeMdPath = path.join(app.getPath('home'), '.claude', 'CLAUDE.md')
+
+  try {
+    const content = fs.readFileSync(claudeMdPath, 'utf-8')
+    const match = content.match(/<!-- forgeterm:v:(\S+) -->/)
+    if (match) {
+      const promptedVersion = match[1]
+      return {
+        connected: true,
+        currentVersion,
+        promptedVersion,
+        needsUpdate: promptedVersion !== currentVersion,
+      }
+    }
+  } catch {
+    // File doesn't exist or can't be read
+  }
+
+  return { connected: false, currentVersion, promptedVersion: null, needsUpdate: true }
+}
+
+function getClaudeSetupPrompt(): string {
+  const version = app.getVersion()
+  return `I use ForgeTerm as my terminal for Claude Code. Please update my global Claude Code instructions (~/.claude/CLAUDE.md) to include the ForgeTerm integration section below.
+
+IMPORTANT: If there's already a "ForgeTerm Integration" section in ~/.claude/CLAUDE.md, replace it entirely with the new version below. If not, add it.
+
+The section MUST end with this exact comment (it's how ForgeTerm detects the connection):
+<!-- forgeterm:v:${version} -->
+
+Here is the section to add/replace:
+
+---
+
+## ForgeTerm Integration
+
+Nadav uses ForgeTerm as his only terminal for Claude Code. ForgeTerm exposes a CLI (\`ft\`, also available as \`forgeterm\`) that communicates with the running app over a Unix socket. Use these commands proactively to keep the ForgeTerm UI informative.
+
+### Session Rename
+When the user gives their first real task in a conversation, rename the session to reflect the work:
+\`\`\`bash
+ft rename "Refactoring auth middleware"
+\`\`\`
+- Keep it short (2-5 words), descriptive of the task
+- Update it if the task changes significantly mid-conversation
+- Only works inside a ForgeTerm session (env vars \`FORGETERM_SESSION_ID\` and \`FORGETERM_PROJECT_PATH\` are set automatically)
+
+### Session Info Card
+Update the sidebar info card at key milestones so the user can glance at what's happening:
+\`\`\`bash
+ft info \\
+  --title "Refactoring auth middleware" \\
+  --summary "Splitting auth.ts into JWT and session modules. 3 files changed so far." \\
+  --last "Extracted JWT validation into jwt.ts"
+\`\`\`
+- \`--title\`: One-line description of the current task
+- \`--summary\`: 1-2 sentences on current state/progress
+- \`--last\`: What was just completed
+- \`--action "Review the PR"\`: (Optional) When something needs the user's attention
+- Update info after completing a significant step, not after every small edit
+- Good moments to update: after finishing a subtask, before/after a build, when blocked or waiting for input
+
+### Notifications
+Send native macOS notifications for events the user should see even if they're not looking at the terminal:
+\`\`\`bash
+ft notify "Done"
+ft notify "Build failed" --title "CI"
+\`\`\`
+- After completing a task: \`ft notify "Done"\` (or a short relevant message)
+- After long-running commands: \`command && ft notify "Success" || ft notify "Failed"\`
+- When blocked and needing human input: \`ft notify "Need your input"\`
+- Clicking the notification focuses the correct ForgeTerm window and session
+
+### Full CLI Reference
+\`\`\`
+ft notify "msg"                        # Send notification
+ft rename "name"                       # Rename current session
+ft info --title ... --summary ...      # Update session info card
+ft open <path>                         # Open a project
+ft list                                # List recent projects
+
+ft project list|open|remove            # Manage projects
+ft session list|add|remove             # Manage sessions (--project <path>)
+ft workspace list|create|delete|rename # Manage workspaces
+ft workspace add-project|remove-project|open|update
+ft config get [key] [--project <path>] # Read project config
+ft config set <key> <value>            # Write project config
+ft theme list|set|terminal|favorites   # Manage themes
+\`\`\`
+
+### Typical Flow
+1. User gives a task -> \`ft rename "Fix login bug"\`
+2. Start working -> \`ft info --title "Fix login bug" --summary "Investigating auth flow" --last "Reading auth middleware"\`
+3. Make progress -> update info with \`--last "Found root cause in session.ts"\`
+4. Finish -> \`ft info ... --last "Fixed and tested"\` then \`ft notify "Done"\`
+
+<!-- forgeterm:v:${version} -->
+
+---
+
+After updating CLAUDE.md, confirm the change was made.`
 }
 
 // --- Session state persistence ---
@@ -1436,8 +1894,6 @@ function setupIpcHandlers() {
 
   // --- Favorite themes ---
 
-  const getFavoriteThemesPath = () => path.join(app.getPath('userData'), 'favorite-themes.json')
-
   ipcMain.handle('themes:get-favorites', () => {
     try {
       const raw = fs.readFileSync(getFavoriteThemesPath(), 'utf-8')
@@ -1567,6 +2023,27 @@ function setupIpcHandlers() {
         const script = `do shell script "cp '${sourcePath}' '${targetPath}' && chmod 755 '${targetPath}'" with administrator privileges`
         execSync(`osascript -e '${script}'`)
       }
+      // Create ft alias symlink
+      const ftPath = '/usr/local/bin/ft'
+      try {
+        try {
+          const existing = fs.readlinkSync(ftPath)
+          if (existing !== targetPath) {
+            fs.unlinkSync(ftPath)
+            fs.symlinkSync(targetPath, ftPath)
+          }
+        } catch {
+          // Not a symlink or doesn't exist - create it
+          try { fs.unlinkSync(ftPath) } catch { /* ignore */ }
+          fs.symlinkSync(targetPath, ftPath)
+        }
+      } catch {
+        // If direct symlink fails, use elevated permissions
+        try {
+          const script = `do shell script "ln -sf '${targetPath}' '${ftPath}'" with administrator privileges`
+          execSync(`osascript -e '${script}'`)
+        } catch { /* non-critical, forgeterm still works */ }
+      }
       return { success: true }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -1640,6 +2117,16 @@ function setupIpcHandlers() {
 
   ipcMain.handle('remote:status', (): RemoteStatus => {
     return remoteServer.getStatus()
+  })
+
+  // --- Claude Code connection ---
+
+  ipcMain.handle('claude:check-connection', (): ClaudeConnectionStatus => {
+    return checkClaudeConnection()
+  })
+
+  ipcMain.handle('claude:get-setup-prompt', (): string => {
+    return getClaudeSetupPrompt()
   })
 
   // Session activity tracking for tray menu and dock badge
