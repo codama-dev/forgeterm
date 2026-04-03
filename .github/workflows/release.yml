@@ -8,9 +8,13 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
@@ -34,15 +38,18 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
+
+      - name: Install Linux build dependencies
+        if: matrix.platform == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3 libarchive-tools
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build app
         run: pnpm run build
         env:
-          # Skip dmg-builder patch on non-macOS (patch only applies to dmg builds)
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload macOS artifact
