@@ -19,14 +19,15 @@ app.commandLine.appendSwitch('remote-debugging-port', '9222')
 
 process.env.APP_ROOT = path.join(__dirname, '..')
 
-// Electron apps launched from Dock/Finder get a minimal PATH.
-// Augment it so spawned processes (cloudflared, etc.) are found.
+// Desktop-launched apps get a minimal PATH. Augment with common tool locations.
 {
-  const extraPaths = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']
   const currentPath = process.env.PATH || ''
-  const missing = extraPaths.filter((p) => !currentPath.split(':').includes(p))
-  if (missing.length) {
-    process.env.PATH = `${currentPath}:${missing.join(':')}`
+  if (process.platform !== 'win32') {
+    const extraPaths = ['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']
+    const missing = extraPaths.filter((p) => !currentPath.split(':').includes(p))
+    if (missing.length) {
+      process.env.PATH = `${currentPath}:${missing.join(':')}`
+    }
   }
 }
 
@@ -140,6 +141,19 @@ function buildCliHandlers(): Map<string, CommandHandler> {
       const info: SessionContext = { title, summary, lastAction, actionItem: actionItem || undefined, updatedAt: Date.now() }
       state?.ptyManager.setSessionInfo(sessionId, info)
       win.webContents.send('session:info-updated', sessionId, info)
+    }
+    return { ok: true }
+  })
+
+  handlers.set('context', (p) => {
+    const projectPath = p.projectPath as string
+    const sessionId = p.sessionId as string
+    const percent = Number(p.percent)
+    if (!projectPath || !sessionId || isNaN(percent)) return { ok: false, error: 'Missing projectPath, sessionId, or percent' }
+    const clamped = Math.max(0, Math.min(100, percent))
+    const win = findWindowForProject(projectPath)
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('session:context-updated', sessionId, clamped)
     }
     return { ok: true }
   })
@@ -614,6 +628,17 @@ ft info \\
 - Update info after completing a significant step, not after every small edit
 - Good moments to update: after finishing a subtask, before/after a build, when blocked or waiting for input
 
+### Context Usage
+Report your context window usage so the sidebar shows a visual ring indicator per session:
+\`\`\`bash
+ft context 42   # 42% of context used
+\`\`\`
+- Report context usage after each significant interaction (every few messages)
+- The number is 0-100 representing the percentage of your context window consumed
+- ForgeTerm shows this as a ring around the session indicator dot in the sidebar
+- When context gets high (>80%), the ring turns red as a visual warning
+- If you know your approximate context usage, report it periodically
+
 ### Notifications
 Send native macOS notifications for events the user should see even if they're not looking at the terminal:
 \`\`\`bash
@@ -630,6 +655,7 @@ ft notify "Build failed" --title "CI"
 ft notify "msg"                        # Send notification
 ft rename "name"                       # Rename current session
 ft info --title ... --summary ...      # Update session info card
+ft context <0-100>                     # Report context window usage %
 ft open <path>                         # Open a project
 ft list                                # List recent projects
 
@@ -645,7 +671,7 @@ ft theme list|set|terminal|favorites   # Manage themes
 ### Typical Flow
 1. User gives a task -> \`ft rename "Fix login bug"\`
 2. Start working -> \`ft info --title "Fix login bug" --summary "Investigating auth flow" --last "Reading auth middleware"\`
-3. Make progress -> update info with \`--last "Found root cause in session.ts"\`
+3. Make progress -> update info with \`--last "Found root cause in session.ts"\` and \`ft context 35\`
 4. Finish -> \`ft info ... --last "Fixed and tested"\` then \`ft notify "Done"\`
 
 <!-- forgeterm:v:${version} -->
@@ -1072,6 +1098,17 @@ function getEditorCandidates(): { name: string; path: string }[] {
       name: editor.name,
       path: path.join(home, '.config', editor.dir, pmSuffix),
     })
+  }
+
+  // Windows paths
+  const appData = process.env.APPDATA
+  if (appData) {
+    for (const editor of macEditors) {
+      candidates.push({
+        name: editor.name,
+        path: path.join(appData, editor.dir, pmSuffix),
+      })
+    }
   }
 
   return candidates
@@ -1980,14 +2017,17 @@ function setupIpcHandlers() {
   })
 
   ipcMain.handle('finder:is-installed', () => {
+    if (process.platform !== 'darwin') return false
     return isFinderIntegrationInstalled()
   })
 
   ipcMain.handle('finder:install', () => {
+    if (process.platform !== 'darwin') return { success: false, error: 'Only available on macOS' }
     return installFinderIntegration()
   })
 
   ipcMain.handle('finder:uninstall', () => {
+    if (process.platform !== 'darwin') return { success: false, error: 'Only available on macOS' }
     return uninstallFinderIntegration()
   })
 

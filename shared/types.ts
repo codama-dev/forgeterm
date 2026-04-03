@@ -125,6 +125,7 @@ export interface SessionContext {
   lastAction: string
   actionItem?: string
   updatedAt: number
+  contextPercent?: number
 }
 
 export interface SavedSession {
@@ -261,6 +262,7 @@ export interface ForgeTermAPI {
   reportSessionStatuses: (statuses: SessionStatusReport[], activeSessionId: string | null) => void
   onSessionRenamed: (callback: (sessionId: string, name: string) => void) => () => void
   onSessionInfoUpdated: (callback: (sessionId: string, info: SessionContext) => void) => () => void
+  onContextUpdated: (callback: (sessionId: string, percent: number) => void) => () => void
   getSavedSessions: () => Promise<SavedWindowState | null>
   clearSavedSessions: () => Promise<void>
   deleteSession: (id: string) => Promise<void>

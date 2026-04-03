@@ -1,0 +1,215 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: ubuntu-latest
+            platform: linux
+          - os: windows-latest
+            platform: win
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build app
+        run: pnpm run build
+        env:
+          # Skip dmg-builder patch on non-macOS (patch only applies to dmg builds)
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS artifact
+        if: matrix.platform == 'mac'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-mac
+          path: |
+            release/**/ForgeTerm-Mac-*.dmg
+          if-no-files-found: error
+
+      - name: Upload Windows artifact
+        if: matrix.platform == 'win'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-win
+          path: |
+            release/**/ForgeTerm-Windows-*-Setup.exe
+          if-no-files-found: error
+
+      - name: Upload Linux artifact
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: |
+            release/**/ForgeTerm-Linux-*.AppImage
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List artifacts
+        run: find artifacts -type f
+
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.version }}
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/release-mac/**/*
+            artifacts/release-win/**/*
+            artifacts/release-linux/**/*
+            bin/forgeterm-cli.sh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  update-homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    if: "!contains(github.ref, 'beta') && !contains(github.ref, 'alpha')"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-mac
+          path: artifacts/mac
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Compute SHA256 hashes
+        id: sha
+        run: |
+          DMG_FILE=$(find artifacts/mac -name "*.dmg" | head -1)
+          CLI_SHA=$(sha256sum bin/forgeterm-cli.sh | awk '{print $1}')
+          DMG_SHA=$(sha256sum "$DMG_FILE" | awk '{print $1}')
+          echo "dmg=$DMG_SHA" >> "$GITHUB_OUTPUT"
+          echo "cli=$CLI_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Update Homebrew tap
+        uses: actions/checkout@v4
+        with:
+          repository: codama-dev/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Cask and Formula
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          DMG_SHA="${{ steps.sha.outputs.dmg }}"
+          CLI_SHA="${{ steps.sha.outputs.cli }}"
+
+          # Update Cask
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" homebrew-tap/Casks/forgeterm.rb
+          sed -i "s/sha256 \".*\"/sha256 \"${DMG_SHA}\"/" homebrew-tap/Casks/forgeterm.rb
+
+          # Update Formula
+          sed -i "s|tag:.*|tag:      \"v${VERSION}\"|" homebrew-tap/Formula/forgeterm-cli.rb
+          sed -i "s/sha256 \".*\"/sha256 \"${CLI_SHA}\"/" homebrew-tap/Formula/forgeterm-cli.rb
+
+      - name: Commit and push Homebrew tap
+        working-directory: homebrew-tap
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || git commit -m "Update ForgeTerm to v${{ steps.version.outputs.version }}"
+          git push
+
+  update-chocolatey:
+    needs: release
+    runs-on: windows-latest
+    if: "!contains(github.ref, 'beta') && !contains(github.ref, 'alpha')"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-win
+          path: artifacts/win
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push Chocolatey package
+        shell: pwsh
+        env:
+          CHOCO_API_KEY: ${{ secrets.CHOCO_API_KEY }}
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $exe = Get-ChildItem -Path artifacts/win -Filter "*.exe" -Recurse | Select-Object -First 1
+          $sha256 = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
+          $url = "https://github.com/codama-dev/forgeterm/releases/download/v${version}/ForgeTerm-Windows-${version}-Setup.exe"
+
+          # Update nuspec version
+          $nuspec = Get-Content choco/forgeterm.nuspec -Raw
+          $nuspec = $nuspec -replace '<version>.*</version>', "<version>${version}</version>"
+          Set-Content choco/forgeterm.nuspec $nuspec
+
+          # Update install script
+          $install = Get-Content choco/tools/chocolateyinstall.ps1 -Raw
+          $install = $install -replace "url\s*=\s*'.*'", "url            = '${url}'"
+          $install = $install -replace "checksum\s*=\s*'.*'", "checksum       = '${sha256}'"
+          Set-Content choco/tools/chocolateyinstall.ps1 $install
+
+          # Pack and push
+          cd choco
+          choco pack
+          if ($env:CHOCO_API_KEY) {
+            choco push forgeterm.${version}.nupkg --source https://push.chocolatey.org/ --api-key $env:CHOCO_API_KEY
+          } else {
+            Write-Warning "CHOCO_API_KEY not set, skipping push"
+          }

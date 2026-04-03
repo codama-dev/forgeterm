@@ -51,6 +51,7 @@
     "iconSize": 80
   },
   "win": {
+    "icon": "build/icon.png",
     "target": [
       {
         "target": "nsis",
@@ -68,9 +69,11 @@
     "deleteAppDataOnUninstall": false
   },
   "linux": {
+    "icon": "build/icon.png",
     "target": [
       "AppImage"
     ],
+    "category": "Development",
     "artifactName": "${productName}-Linux-${version}.${ext}"
   }
 }

@@ -294,6 +294,12 @@ const api: ForgeTermAPI = {
     return () => { ipcRenderer.removeListener('session:info-updated', handler) }
   },
 
+  onContextUpdated: (callback: (sessionId: string, percent: number) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string, percent: number) => callback(sessionId, percent)
+    ipcRenderer.on('session:context-updated', handler)
+    return () => { ipcRenderer.removeListener('session:context-updated', handler) }
+  },
+
   getSavedSessions: () =>
     ipcRenderer.invoke('sessions:get-saved'),
 

@@ -220,6 +220,30 @@ cmd_info() {
   check_response "$response" true || exit 1
 }
 
+cmd_context() {
+  if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    cat <<'USAGE'
+Usage: ft context <0-100>
+
+Report Claude Code context window usage percentage to ForgeTerm.
+The session indicator in the sidebar will show a ring reflecting usage.
+
+Examples:
+  ft context 42    # 42% of context used
+  ft context 85    # 85% of context used
+USAGE
+    exit 0
+  fi
+  local percent="$1"
+  if [ -z "$percent" ]; then echo "Usage: ft context <0-100>" >&2; exit 1; fi
+  require_session
+
+  local json="{\"command\":\"context\",\"percent\":$percent,\"projectPath\":$(json_string "$FORGETERM_PROJECT_PATH"),\"sessionId\":$(json_string "$FORGETERM_SESSION_ID")}"
+  local response
+  response=$(send_to_socket "$json") || exit 1
+  check_response "$response" true || exit 1
+}
+
 cmd_open() {
   if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
     echo "Usage: ft open <path> - Open a project in ForgeTerm"
@@ -708,6 +732,7 @@ Direct commands:
   notify "message"        Send a native notification
   rename "name"           Rename current session
   info                    Update session info card
+  context <0-100>         Report context window usage %
   open [path]             Open a project
   open-workspace [path]   Open folder as workspace
   list [--json]           List recent projects
@@ -730,6 +755,7 @@ case "${1:-}" in
   notify)    shift; cmd_notify "$@" ;;
   rename)    shift; cmd_rename "$@" ;;
   info)      shift; cmd_info "$@" ;;
+  context)   shift; cmd_context "$@" ;;
   open)      shift; cmd_open "$@" ;;
   list)      shift; cmd_list "$@" ;;
   open-workspace) shift; cmd_open_workspace "$@" ;;

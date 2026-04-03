@@ -162,12 +162,12 @@ export function Sidebar({
               />
             ) : (
               <>
-                <span
-                  className={`session-indicator ${session.running ? 'running' : 'stopped'}${
-                    session.activityStatus === 'working' ? ' activity-working' :
-                    session.activityStatus === 'unread' ? ' activity-unread' : ''
-                  }`}
-                  style={session.running ? { color: accentColor } : undefined}
+                <ContextCircle
+                  size={compact ? 12 : 14}
+                  percent={session.contextPercent}
+                  running={session.running}
+                  accentColor={accentColor}
+                  activityStatus={session.activityStatus}
                 />
                 {!compact && (
                   <>
@@ -187,7 +187,7 @@ export function Sidebar({
                         title="Session info"
                         style={{ color: accentColor }}
                       >
-                        <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
                           <circle cx="8" cy="4" r="1.5" />
                           <rect x="6.5" y="7" width="3" height="7" rx="1" />
                         </svg>
@@ -373,6 +373,19 @@ export function Sidebar({
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" /></svg>
             Rename
           </div>
+          {(() => {
+            const s = sessions.find((s) => s.id === menu.sessionId)
+            return s?.info ? (
+              <div className="context-menu-item" onClick={(e) => {
+                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+                setMenu(null)
+                setInfoPopover({ sessionId: menu.sessionId, x: rect.right + 8, y: rect.top - 4 })
+              }}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="4" r="1.5" /><rect x="6.5" y="7" width="3" height="7" rx="1" /></svg>
+                Info
+              </div>
+            ) : null
+          })()}
           {repoUrl && (<>
             <div className="context-menu-divider" />
             <div className="context-menu-item" onClick={() => {
@@ -420,11 +433,85 @@ export function Sidebar({
                 </div>
               </>
             )}
+            {session!.contextPercent != null && (
+              <>
+                <div className="session-info-divider" />
+                <div className="session-info-context">
+                  <div className="session-info-context-bar">
+                    <div
+                      className="session-info-context-fill"
+                      style={{
+                        width: `${session!.contextPercent}%`,
+                        background: session!.contextPercent > 80 ? '#f87171' : session!.contextPercent > 60 ? '#fbbf24' : accentColor,
+                      }}
+                    />
+                  </div>
+                  <span className="session-info-context-label">{session!.contextPercent}% context used</span>
+                </div>
+              </>
+            )}
             <div className="session-info-time">Updated {ago}</div>
           </div>
         )
       })()}
     </div>
+  )
+}
+
+function ContextCircle({ size, percent, running, accentColor, activityStatus }: {
+  size: number
+  percent?: number
+  running: boolean
+  accentColor: string
+  activityStatus: 'idle' | 'working' | 'unread'
+}) {
+  const hasContext = percent != null && percent > 0
+  const r = 7 // ring radius within 20x20 viewbox
+  const circumference = 2 * Math.PI * r
+  const offset = hasContext ? circumference * (1 - percent / 100) : circumference
+
+  // Determine colors
+  const isWorking = activityStatus === 'working'
+  const isUnread = activityStatus === 'unread'
+  const dotColor = isWorking ? '#4ade80' : isUnread ? '#facc15' : accentColor
+  const contextColor = hasContext && percent > 80 ? '#f87171' : hasContext && percent > 60 ? '#fbbf24' : accentColor
+  const ringColor = isWorking ? '#4ade80' : isUnread ? '#facc15' : contextColor
+
+  const className = `context-circle${isWorking ? ' activity-working' : isUnread ? ' activity-unread' : ''}`
+
+  return (
+    <svg width={size} height={size} viewBox="0 0 20 20" className={className} style={{ flexShrink: 0 }}>
+      {/* Background ring (always visible when there's context data) */}
+      {hasContext && (
+        <circle
+          cx="10" cy="10" r={r}
+          fill="none"
+          stroke={ringColor}
+          strokeWidth="2.5"
+          opacity="0.15"
+        />
+      )}
+      {/* Foreground arc (context usage) */}
+      {hasContext && (
+        <circle
+          cx="10" cy="10" r={r}
+          fill="none"
+          stroke={ringColor}
+          strokeWidth="2.5"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          opacity="0.85"
+          style={{ transform: 'rotate(-90deg)', transformOrigin: '50% 50%', transition: 'stroke-dashoffset 0.6s ease' }}
+        />
+      )}
+      {/* Center dot */}
+      {running ? (
+        <circle cx="10" cy="10" r={hasContext ? 3 : 3.5} fill={dotColor} />
+      ) : (
+        <circle cx="10" cy="10" r={hasContext ? 3 : 3.5} fill="none" stroke={dotColor} strokeWidth="1.5" opacity="0.4" />
+      )}
+    </svg>
   )
 }
 

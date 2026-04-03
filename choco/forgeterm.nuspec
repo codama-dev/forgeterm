@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>forgeterm</id>
+    <version>0.15.0</version>
+    <title>ForgeTerm</title>
+    <authors>Codama</authors>
+    <owners>codama-dev</owners>
+    <projectUrl>https://github.com/codama-dev/forgeterm</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/codama-dev/forgeterm/main/build/icon.png</iconUrl>
+    <licenseUrl>https://github.com/codama-dev/forgeterm/blob/main/LICENSE</licenseUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Terminal emulator for multi-project workflows. Electron-based with per-project windows, multiple sessions, configurable themes, and Claude Code integration.</description>
+    <summary>Terminal emulator for multi-project workflows</summary>
+    <tags>terminal emulator electron developer-tools cli</tags>
+    <packageSourceUrl>https://github.com/codama-dev/forgeterm</packageSourceUrl>
+    <bugTrackerUrl>https://github.com/codama-dev/forgeterm/issues</bugTrackerUrl>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>

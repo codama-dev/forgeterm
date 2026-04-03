@@ -185,7 +185,10 @@ function App() {
     const unsubInfo = window.forgeterm.onSessionInfoUpdated((sessionId, info) => {
       useSessionStore.getState().setSessionInfo(sessionId, info)
     })
-    return () => { unsubRename(); unsubInfo() }
+    const unsubContext = window.forgeterm.onContextUpdated((sessionId, percent) => {
+      useSessionStore.getState().setContextPercent(sessionId, percent)
+    })
+    return () => { unsubRename(); unsubInfo(); unsubContext() }
   }, [])
 
   // Listen for session exits
