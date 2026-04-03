@@ -47,8 +47,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --no-frozen-lockfile
 
-      - name: Build app
-        run: pnpm run build
+      - name: Rebuild native modules for Electron
+        run: npx @electron/rebuild -w node-pty
+
+      - name: TypeScript check and Vite build
+        run: npx tsc && npx vite build
+
+      - name: Package with electron-builder
+        run: npx electron-builder --publish never -c.npmRebuild=false
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
