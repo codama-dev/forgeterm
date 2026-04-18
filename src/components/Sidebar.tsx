@@ -14,6 +14,8 @@ interface SidebarProps {
   sidebarBackground?: string
   sidebarForeground?: string
   buttonBackground?: string
+  width: number
+  onWidthChange: (width: number) => void
   onNewSession: () => void
   onQuickSession: () => void
   onDuplicateSession: (name: string, command?: string) => void
@@ -22,6 +24,7 @@ interface SidebarProps {
   onHelp: () => void
   onCli: () => void
   onRemote: () => void
+  onInfoPanel: (sessionId: string) => void
   cliStatus: CliStatus
   remoteRunning: boolean
 }
@@ -32,6 +35,8 @@ export function Sidebar({
   sidebarBackground,
   sidebarForeground,
   buttonBackground,
+  width,
+  onWidthChange,
   onNewSession,
   onQuickSession,
   onDuplicateSession,
@@ -40,6 +45,7 @@ export function Sidebar({
   onHelp,
   onCli,
   onRemote,
+  onInfoPanel,
   cliStatus,
   remoteRunning,
 }: SidebarProps) {
@@ -48,7 +54,7 @@ export function Sidebar({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
   const [repoUrl, setRepoUrl] = useState<string | null | undefined>(undefined)
-  const [infoPopover, setInfoPopover] = useState<{ sessionId: string; x: number; y: number } | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   const btnBg = buttonBackground ?? '#1c2d4d'
@@ -67,7 +73,7 @@ export function Sidebar({
   }, [])
 
   useEffect(() => {
-    const handleClick = () => { setMenu(null); setInfoPopover(null) }
+    const handleClick = () => { setMenu(null) }
     window.addEventListener('click', handleClick)
     return () => window.removeEventListener('click', handleClick)
   }, [])
@@ -124,10 +130,34 @@ export function Sidebar({
 
   const compact = mode === 'compact'
 
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
+    const startX = e.clientX
+    const startWidth = width
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const newWidth = Math.max(140, Math.min(500, startWidth + (ev.clientX - startX)))
+      onWidthChange(newWidth)
+    }
+    const onMouseUp = () => {
+      setIsDragging(false)
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [width, onWidthChange])
+
   return (
     <div
-      className={`sidebar ${compact ? 'sidebar-compact' : ''}`}
+      className={`sidebar ${compact ? 'sidebar-compact' : ''}${isDragging ? ' sidebar-dragging' : ''}`}
       style={{
+        ...(!compact ? { width, minWidth: width } : {}),
         ...(sidebarBackground ? { background: sidebarBackground } : {}),
         ...(sidebarForeground ? { color: sidebarForeground } : {}),
       }}
@@ -172,27 +202,20 @@ export function Sidebar({
                 {!compact && (
                   <>
                     <span className="session-name">{session.name}</span>
-                    {session.info && (
-                      <button
-                        className="session-info-btn"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                          setInfoPopover(infoPopover?.sessionId === session.id ? null : {
-                            sessionId: session.id,
-                            x: rect.right + 8,
-                            y: rect.top - 4,
-                          })
-                        }}
-                        title="Session info"
-                        style={{ color: accentColor }}
-                      >
-                        <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-                          <circle cx="8" cy="4" r="1.5" />
-                          <rect x="6.5" y="7" width="3" height="7" rx="1" />
-                        </svg>
-                      </button>
-                    )}
+                    <button
+                      className="session-info-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onInfoPanel(session.id)
+                      }}
+                      title="Session info"
+                      style={{ color: accentColor }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+                        <circle cx="8" cy="4" r="1.5" />
+                        <rect x="6.5" y="7" width="3" height="7" rx="1" />
+                      </svg>
+                    </button>
                     <div className="session-controls">
                       {session.running ? (
                         <button
@@ -339,6 +362,13 @@ export function Sidebar({
         </button>
       </div>
 
+      {!compact && (
+        <div
+          className="sidebar-resize-handle"
+          onMouseDown={handleResizeStart}
+        />
+      )}
+
       {menu && (
         <div
           className="context-menu"
@@ -373,19 +403,14 @@ export function Sidebar({
             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" /></svg>
             Rename
           </div>
-          {(() => {
-            const s = sessions.find((s) => s.id === menu.sessionId)
-            return s?.info ? (
-              <div className="context-menu-item" onClick={(e) => {
-                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-                setMenu(null)
-                setInfoPopover({ sessionId: menu.sessionId, x: rect.right + 8, y: rect.top - 4 })
-              }}>
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="4" r="1.5" /><rect x="6.5" y="7" width="3" height="7" rx="1" /></svg>
-                Info
-              </div>
-            ) : null
-          })()}
+          <div className="context-menu-item" onClick={() => {
+            const id = menu.sessionId
+            setMenu(null)
+            onInfoPanel(id)
+          }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="4" r="1.5" /><rect x="6.5" y="7" width="3" height="7" rx="1" /></svg>
+            Info
+          </div>
           {repoUrl && (<>
             <div className="context-menu-divider" />
             <div className="context-menu-item" onClick={() => {
@@ -408,52 +433,6 @@ export function Sidebar({
         </div>
       )}
 
-      {infoPopover && (() => {
-        const session = sessions.find((s) => s.id === infoPopover.sessionId)
-        const info = session?.info
-        if (!info) return null
-        const ago = formatTimeAgo(info.updatedAt)
-        return (
-          <div
-            className="session-info-popover"
-            style={{ top: infoPopover.y, left: infoPopover.x }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="session-info-title">{info.title}</div>
-            <div className="session-info-summary">{info.summary}</div>
-            <div className="session-info-divider" />
-            <div className="session-info-label">Last action</div>
-            <div className="session-info-text">{info.lastAction}</div>
-            {info.actionItem && (
-              <>
-                <div className="session-info-divider" />
-                <div className="session-info-action-item">
-                  <span className="session-info-action-badge" style={{ background: accentColor }}>Action needed</span>
-                  {info.actionItem}
-                </div>
-              </>
-            )}
-            {session!.contextPercent != null && (
-              <>
-                <div className="session-info-divider" />
-                <div className="session-info-context">
-                  <div className="session-info-context-bar">
-                    <div
-                      className="session-info-context-fill"
-                      style={{
-                        width: `${session!.contextPercent}%`,
-                        background: session!.contextPercent > 80 ? '#f87171' : session!.contextPercent > 60 ? '#fbbf24' : accentColor,
-                      }}
-                    />
-                  </div>
-                  <span className="session-info-context-label">{session!.contextPercent}% context used</span>
-                </div>
-              </>
-            )}
-            <div className="session-info-time">Updated {ago}</div>
-          </div>
-        )
-      })()}
     </div>
   )
 }
@@ -515,12 +494,3 @@ function ContextCircle({ size, percent, running, accentColor, activityStatus }: 
   )
 }
 
-function formatTimeAgo(timestamp: number): string {
-  const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}

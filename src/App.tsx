@@ -8,6 +8,8 @@ import { ProjectSwitcher } from './components/ProjectSwitcher'
 import { HelpModal } from './components/HelpModal'
 import { CliInstallModal } from './components/CliInstallModal'
 import { RemoteAccessModal } from './components/RemoteAccessModal'
+import { SessionInfoPanel } from './components/SessionInfoPanel'
+import { Dashboard } from './components/Dashboard'
 import { UpdateBanner } from './components/UpdateBanner'
 import { ClaudeConnectionBanner } from './components/ClaudeConnectionBanner'
 import { useSessionStore } from './store/sessionStore'
@@ -18,7 +20,11 @@ import './App.css'
 
 type SidebarMode = 'full' | 'compact' | 'hidden'
 
+const isDashboard = new URLSearchParams(window.location.search).get('mode') === 'dashboard'
+
 function App() {
+  if (isDashboard) return <Dashboard />
+
   const { sessions, activeSessionId, addSession, setRunning, setActive, removeSession } = useSessionStore()
   const [config, setConfig] = useState<ForgeTermConfig | null>(null)
   const [showModal, setShowModal] = useState(false)
@@ -30,12 +36,15 @@ function App() {
   const [showCliInstall, setShowCliInstall] = useState(false)
   const [showCliPrompt, setShowCliPrompt] = useState(false)
   const [showRemoteAccess, setShowRemoteAccess] = useState(false)
+  const [infoPanelSessionId, setInfoPanelSessionId] = useState<string | null>(null)
   const [remoteRunning, setRemoteRunning] = useState(false)
   const [cliStatus, setCliStatus] = useState<CliStatus>('not-setup')
   const [folderName, setFolderName] = useState('ForgeTerm')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('full')
+  const [sidebarWidth, setSidebarWidth] = useState(220)
   const [previewTheme, setPreviewTheme] = useState<WindowTheme | null>(null)
   const initializedRef = useRef(false)
+  const sidebarWidthSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const displayName = config?.projectName || folderName
   const win = config?.window
@@ -64,10 +73,11 @@ function App() {
     initializedRef.current = true
 
     async function init() {
-      const [projectConfig, projectPath, savedSidebarMode, hasProject, savedState] = await Promise.all([
+      const [projectConfig, projectPath, savedSidebarMode, savedSidebarWidth, hasProject, savedState] = await Promise.all([
         window.forgeterm.getProjectConfig(),
         window.forgeterm.getProjectPath(),
         window.forgeterm.getSidebarMode(),
+        window.forgeterm.getSidebarWidth(),
         window.forgeterm.hasProject(),
         window.forgeterm.getSavedSessions(),
       ])
@@ -79,6 +89,7 @@ function App() {
 
       setConfig(projectConfig)
       if (savedSidebarMode) setSidebarMode(savedSidebarMode)
+      if (savedSidebarWidth) setSidebarWidth(savedSidebarWidth)
       const folder = projectPath?.split('/').pop() || 'ForgeTerm'
       setFolderName(folder)
       document.title = projectConfig?.projectName || folder
@@ -238,14 +249,16 @@ function App() {
     return window.forgeterm.onProjectOpened(async () => {
       setShowWelcome(false)
       initializedRef.current = false
-      const [projectConfig, projectPath, savedSidebarMode, savedState] = await Promise.all([
+      const [projectConfig, projectPath, savedSidebarMode, savedSidebarWidth, savedState] = await Promise.all([
         window.forgeterm.getProjectConfig(),
         window.forgeterm.getProjectPath(),
         window.forgeterm.getSidebarMode(),
+        window.forgeterm.getSidebarWidth(),
         window.forgeterm.getSavedSessions(),
       ])
       setConfig(projectConfig)
       if (savedSidebarMode) setSidebarMode(savedSidebarMode)
+      if (savedSidebarWidth) setSidebarWidth(savedSidebarWidth)
       const folder = projectPath?.split('/').pop() || 'ForgeTerm'
       setFolderName(folder)
       document.title = projectConfig?.projectName || folder
@@ -299,6 +312,14 @@ function App() {
       window.forgeterm.saveSidebarMode(next)
       return next
     })
+  }, [])
+
+  const handleSidebarWidthChange = useCallback((newWidth: number) => {
+    setSidebarWidth(newWidth)
+    if (sidebarWidthSaveRef.current) clearTimeout(sidebarWidthSaveRef.current)
+    sidebarWidthSaveRef.current = setTimeout(() => {
+      window.forgeterm.saveSidebarWidth(newWidth)
+    }, 300)
   }, [])
 
   const handleThemePreview = useCallback((windowTheme: WindowTheme | null) => {
@@ -431,7 +452,7 @@ function App() {
         adjustCurrentThemeBrightness(-7)
       }
 
-      // Escape: close modals
+      // Escape: close modals and panels
       if (e.key === 'Escape') {
         setShowModal(false)
         setShowThemeEditor(false)
@@ -440,6 +461,7 @@ function App() {
         setShowHelp(false)
         setShowCliInstall(false)
         setShowRemoteAccess(false)
+        setInfoPanelSessionId(null)
       }
     }
 
@@ -561,6 +583,8 @@ function App() {
             sidebarBackground={sidebarBg}
             sidebarForeground={sidebarFg}
             buttonBackground={buttonBg}
+            width={sidebarWidth}
+            onWidthChange={handleSidebarWidthChange}
             onNewSession={() => setShowModal(true)}
             onQuickSession={async () => {
               const id = await window.forgeterm.createSession('shell')
@@ -575,10 +599,21 @@ function App() {
             onHelp={() => setShowHelp(true)}
             onCli={() => setShowCliInstall(true)}
             onRemote={() => setShowRemoteAccess(true)}
+            onInfoPanel={(id) => setInfoPanelSessionId(infoPanelSessionId === id ? null : id)}
             cliStatus={cliStatus}
             remoteRunning={remoteRunning}
           />
         )}
+        {infoPanelSessionId && (() => {
+          const panelSession = sessions.find(s => s.id === infoPanelSessionId)
+          return panelSession ? (
+            <SessionInfoPanel
+              session={panelSession}
+              accentColor={accentColor}
+              onClose={() => setInfoPanelSessionId(null)}
+            />
+          ) : null
+        })()}
         <div className={`terminal-area${sidebarMode === 'hidden' || showCliPrompt ? ' has-floating' : ''}`}>
           {sessions.map((session) => (
             <TerminalView

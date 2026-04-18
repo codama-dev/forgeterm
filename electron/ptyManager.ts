@@ -10,6 +10,7 @@ interface PtySession {
   cwd: string
   running: boolean
   info?: SessionContext
+  createdAt: number
 }
 
 interface CreateSessionOptions {
@@ -50,6 +51,7 @@ export class PtyManager {
         command: options.command,
         cwd: options.cwd,
         running: false,
+        createdAt: Date.now(),
       })
       return id
     }
@@ -93,6 +95,7 @@ export class PtyManager {
       command: options.command,
       cwd: options.cwd,
       running: true,
+      createdAt: Date.now(),
     })
 
     return id
@@ -242,7 +245,7 @@ export class PtyManager {
     return () => { this.extraExitListeners.get(id)?.delete(listener) }
   }
 
-  getAllSessions(): Array<{ id: string; name: string; command?: string; running: boolean; pid: number | null; info?: SessionContext }> {
+  getAllSessions(): Array<{ id: string; name: string; command?: string; running: boolean; pid: number | null; info?: SessionContext; createdAt: number }> {
     return Array.from(this.sessions.values()).map(s => ({
       id: s.id,
       name: s.name,
@@ -250,6 +253,7 @@ export class PtyManager {
       running: s.running,
       pid: s.pty?.pid ?? null,
       info: s.info,
+      createdAt: s.createdAt,
     }))
   }
 }

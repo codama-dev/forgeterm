@@ -758,6 +758,7 @@ case "${1:-}" in
   context)   shift; cmd_context "$@" ;;
   open)      shift; cmd_open "$@" ;;
   list)      shift; cmd_list "$@" ;;
+  dashboard) send_command '{"command":"dashboard"}' ;;
   open-workspace) shift; cmd_open_workspace "$@" ;;
 
   # Command groups

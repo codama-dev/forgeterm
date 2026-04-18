@@ -4,7 +4,8 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { execSync } from 'node:child_process'
 import { PtyManager } from './ptyManager'
-import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext } from '../shared/types'
+import type { ForgeTermConfig, RecentProject, Workspace, ImportResult, FavoriteTheme, DetectedEditor, UpdateInfo, SessionTemplate, SessionStatusReport, SavedSession, SavedWindowState, SessionContext, HistoricalSession, SessionHistoryFilter, DashboardState, DashboardProject, DashboardSession, DashboardWorkspace } from '../shared/types'
+import crypto from 'node:crypto'
 import { UpdateManager } from './updater'
 import { NotificationServer, getSocketPath, type CommandHandler } from './notificationServer'
 import { isFinderIntegrationInstalled, installFinderIntegration, uninstallFinderIntegration } from './finderIntegration'
@@ -95,6 +96,11 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     return { ok: true }
   })
 
+  handlers.set('dashboard', () => {
+    createDashboardWindow()
+    return { ok: true }
+  })
+
   handlers.set('open', (p) => {
     const projectPath = p.path as string
     if (!projectPath) return { ok: false, error: 'Missing path' }
@@ -138,7 +144,13 @@ function buildCliHandlers(): Map<string, CommandHandler> {
     const win = findWindowForProject(projectPath)
     if (win && !win.isDestroyed()) {
       const state = windowStates.get(win.id)
-      const info: SessionContext = { title, summary, lastAction, actionItem: actionItem || undefined, updatedAt: Date.now() }
+      const existing = state?.ptyManager.getSession(sessionId)
+      const existingTimeline = existing?.info?.timeline ?? []
+      const existingContextPercent = existing?.info?.contextPercent
+      const newEntry = { title, summary, lastAction, actionItem: actionItem || undefined, timestamp: Date.now(), contextPercent: existingContextPercent }
+      // Cap timeline at 50 entries
+      const timeline = [...existingTimeline, newEntry].slice(-50)
+      const info: SessionContext = { title, summary, lastAction, actionItem: actionItem || undefined, updatedAt: Date.now(), contextPercent: existingContextPercent, timeline }
       state?.ptyManager.setSessionInfo(sessionId, info)
       win.webContents.send('session:info-updated', sessionId, info)
     }
@@ -474,6 +486,155 @@ function saveRecentProject(projectPath: string) {
   const filtered = projects.filter((p) => p.path !== projectPath)
   filtered.unshift({ ...existing, path: projectPath, name, lastOpened: Date.now(), workspace })
   fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(filtered, null, 2), 'utf-8')
+}
+
+// --- Session History ---
+
+function getHistoryDir(): string {
+  const dir = path.join(app.getPath('userData'), 'session-history')
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+function getHistoryPath(projectPath: string): string {
+  const hash = crypto.createHash('md5').update(projectPath).digest('hex')
+  return path.join(getHistoryDir(), `${hash}.json`)
+}
+
+function loadHistory(projectPath: string): HistoricalSession[] {
+  try {
+    const raw = fs.readFileSync(getHistoryPath(projectPath), 'utf-8')
+    return JSON.parse(raw) as HistoricalSession[]
+  } catch {
+    return []
+  }
+}
+
+function saveHistory(projectPath: string, sessions: HistoricalSession[]) {
+  fs.writeFileSync(getHistoryPath(projectPath), JSON.stringify(sessions, null, 2), 'utf-8')
+}
+
+function appendToHistory(projectPath: string, session: HistoricalSession) {
+  const history = loadHistory(projectPath)
+  const existing = history.findIndex(h => h.id === session.id)
+  if (existing >= 0) {
+    history[existing] = session
+  } else {
+    history.push(session)
+  }
+  saveHistory(projectPath, history)
+}
+
+function cleanupOldHistory(maxAgeDays: number): number {
+  const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000
+  const dir = getHistoryDir()
+  let removed = 0
+  try {
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
+    for (const file of files) {
+      const filePath = path.join(dir, file)
+      const sessions: HistoricalSession[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+      const filtered = sessions.filter(s => (s.endedAt ?? s.createdAt) > cutoff)
+      removed += sessions.length - filtered.length
+      if (filtered.length === 0) {
+        fs.unlinkSync(filePath)
+      } else if (filtered.length < sessions.length) {
+        fs.writeFileSync(filePath, JSON.stringify(filtered, null, 2), 'utf-8')
+      }
+    }
+  } catch { /* ignore */ }
+  return removed
+}
+
+function searchHistory(filter: SessionHistoryFilter): HistoricalSession[] {
+  const dir = getHistoryDir()
+  const results: HistoricalSession[] = []
+  const cutoff = filter.maxAgeDays ? Date.now() - filter.maxAgeDays * 24 * 60 * 60 * 1000 : 0
+  try {
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
+    for (const file of files) {
+      const filePath = path.join(dir, file)
+      const sessions: HistoricalSession[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+      for (const s of sessions) {
+        if (filter.projectPath && s.projectPath !== filter.projectPath) continue
+        if (filter.workspace && s.workspace !== filter.workspace) continue
+        if (cutoff && (s.endedAt ?? s.createdAt) < cutoff) continue
+        if (filter.query) {
+          const q = filter.query.toLowerCase()
+          const matches = s.name.toLowerCase().includes(q) ||
+            s.info?.title?.toLowerCase().includes(q) ||
+            s.info?.summary?.toLowerCase().includes(q) ||
+            s.info?.timeline?.some(e => e.lastAction.toLowerCase().includes(q))
+          if (!matches) continue
+        }
+        results.push(s)
+      }
+    }
+  } catch { /* ignore */ }
+  return results.sort((a, b) => (b.endedAt ?? b.createdAt) - (a.endedAt ?? a.createdAt))
+}
+
+function getDashboardState(): DashboardState {
+  const workspaces = loadWorkspaces()
+  const recentProjects = loadRecentProjects()
+
+  // Build a map of open windows: projectPath -> session statuses
+  const openWindows = new Map<string, { sessions: SessionStatusReport[]; ptyManager: PtyManager }>()
+  for (const [winId, state] of windowStates) {
+    const activity = windowActivities.get(winId)
+    openWindows.set(state.projectPath, {
+      sessions: activity?.sessions ?? [],
+      ptyManager: state.ptyManager,
+    })
+  }
+
+  // Helper to build DashboardProject
+  const buildProject = (projectPath: string): DashboardProject => {
+    const recent = recentProjects.find(p => p.path === projectPath)
+    const openWin = openWindows.get(projectPath)
+    const sessions: DashboardSession[] = (openWin?.sessions ?? []).map(s => {
+      const ptySession = openWin?.ptyManager.getSession(s.sessionId)
+      return {
+        id: s.sessionId,
+        name: s.sessionName,
+        running: true,
+        activityStatus: s.status,
+        contextPercent: ptySession?.info?.contextPercent,
+        info: ptySession?.info,
+      }
+    })
+    return {
+      path: projectPath,
+      name: recent?.name || path.basename(projectPath),
+      isOpen: openWindows.has(projectPath),
+      emoji: recent?.emoji,
+      accentColor: recent?.accentColor,
+      sessions,
+    }
+  }
+
+  // Build workspace cards
+  const workspaceProjectPaths = new Set<string>()
+  const dashWorkspaces: DashboardWorkspace[] = workspaces.map(ws => {
+    ws.projects.forEach(p => workspaceProjectPaths.add(p))
+    return {
+      name: ws.name,
+      emoji: ws.emoji,
+      accentColor: ws.accentColor,
+      description: ws.description,
+      projects: ws.projects.map(buildProject),
+    }
+  })
+
+  // Standalone projects (open but not in any workspace)
+  const standaloneProjects: DashboardProject[] = []
+  for (const [projectPath] of openWindows) {
+    if (!workspaceProjectPaths.has(projectPath) && projectPath) {
+      standaloneProjects.push(buildProject(projectPath))
+    }
+  }
+
+  return { workspaces: dashWorkspaces, standaloneProjects }
 }
 
 // --- Workspaces ---
@@ -1011,6 +1172,59 @@ function focusOrCreateWindow(projectPath: string): BrowserWindow {
   return createProjectWindow(projectPath)
 }
 
+let dashboardWindow: BrowserWindow | null = null
+let dashboardUpdateInterval: ReturnType<typeof setInterval> | null = null
+
+function createDashboardWindow() {
+  if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+    dashboardWindow.focus()
+    return dashboardWindow
+  }
+
+  const primaryDisplay = screen.getPrimaryDisplay()
+  const { width, height } = primaryDisplay.workAreaSize
+
+  dashboardWindow = new BrowserWindow({
+    width,
+    height,
+    title: 'ForgeTerm Command Center',
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 12, y: 12 },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.mjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  dashboardWindow.on('closed', () => {
+    dashboardWindow = null
+    if (dashboardUpdateInterval) {
+      clearInterval(dashboardUpdateInterval)
+      dashboardUpdateInterval = null
+    }
+  })
+
+  const url = VITE_DEV_SERVER_URL
+    ? `${VITE_DEV_SERVER_URL}?mode=dashboard`
+    : `file://${path.join(RENDERER_DIST, 'index.html')}?mode=dashboard`
+
+  if (VITE_DEV_SERVER_URL) {
+    dashboardWindow.loadURL(url)
+  } else {
+    dashboardWindow.loadFile(path.join(RENDERER_DIST, 'index.html'), { query: { mode: 'dashboard' } })
+  }
+
+  // Push state updates every 2 seconds while dashboard is open
+  dashboardUpdateInterval = setInterval(() => {
+    if (dashboardWindow && !dashboardWindow.isDestroyed()) {
+      dashboardWindow.webContents.send('dashboard:state-changed', getDashboardState())
+    }
+  }, 2000)
+
+  return dashboardWindow
+}
+
 function createProjectWindow(projectPath: string | null) {
   if (projectPath) {
     autoAssignThemeIfNeeded(projectPath)
@@ -1043,6 +1257,22 @@ function createProjectWindow(projectPath: string | null) {
   win.on('closed', () => {
     const state = windowStates.get(win.id)
     if (state) {
+      // Save to session history before killing
+      if (state.projectPath) {
+        const workspace = getWorkspaceForProject(state.projectPath)
+        for (const session of state.ptyManager.getAllSessions()) {
+          appendToHistory(state.projectPath, {
+            id: session.id,
+            name: session.name,
+            command: session.command,
+            projectPath: state.projectPath,
+            workspace,
+            createdAt: session.createdAt,
+            endedAt: Date.now(),
+            info: session.info,
+          })
+        }
+      }
       saveWindowSessionState(state)
       state.ptyManager.killAll()
       state.configWatcher?.close()
@@ -1304,6 +1534,14 @@ function updateTrayMenu() {
   if (!tray) return
 
   const menuItems: Electron.MenuItemConstructorOptions[] = []
+
+  // Dashboard item at top
+  menuItems.push({
+    label: 'Command Center',
+    click: () => createDashboardWindow(),
+  })
+  menuItems.push({ type: 'separator' })
+
   const workspaces = loadWorkspaces()
 
   // Map project paths to their first workspace
@@ -1775,6 +2013,52 @@ function setupIpcHandlers() {
       project.sidebarMode = mode as 'full' | 'compact' | 'hidden'
       fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
     }
+  })
+
+  ipcMain.handle('project:get-sidebar-width', (event) => {
+    const state = getStateForEvent(event)
+    if (!state) return undefined
+    const projects = loadRecentProjects()
+    const project = projects.find((p) => p.path === state.projectPath)
+    return project?.sidebarWidth
+  })
+
+  ipcMain.handle('project:save-sidebar-width', (event, width: number) => {
+    const state = getStateForEvent(event)
+    if (!state) return
+    const projects = loadRecentProjects()
+    const project = projects.find((p) => p.path === state.projectPath)
+    if (project) {
+      project.sidebarWidth = width
+      fs.writeFileSync(getRecentProjectsPath(), JSON.stringify(projects, null, 2), 'utf-8')
+    }
+  })
+
+  ipcMain.handle('dashboard:get-state', () => {
+    return getDashboardState()
+  })
+
+  ipcMain.handle('session-history:get', (_event, projectPath?: string) => {
+    if (projectPath) return loadHistory(projectPath)
+    // Load all history
+    const dir = getHistoryDir()
+    const all: HistoricalSession[] = []
+    try {
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'))
+      for (const file of files) {
+        const sessions: HistoricalSession[] = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8'))
+        all.push(...sessions)
+      }
+    } catch { /* ignore */ }
+    return all.sort((a, b) => (b.endedAt ?? b.createdAt) - (a.endedAt ?? a.createdAt))
+  })
+
+  ipcMain.handle('session-history:search', (_event, filter: SessionHistoryFilter) => {
+    return searchHistory(filter)
+  })
+
+  ipcMain.handle('session-history:delete-old', (_event, maxAgeDays: number) => {
+    return cleanupOldHistory(maxAgeDays)
   })
 
   ipcMain.handle('import:vscode-projects', async () => {
@@ -2467,6 +2751,9 @@ app.whenReady().then(() => {
   createTray()
   notificationServer.start()
 
+  // Cleanup session history older than 60 days
+  cleanupOldHistory(60)
+
   // Broadcast update availability to all renderer windows
   updateManager.onUpdateAvailable((info) => {
     for (const win of BrowserWindow.getAllWindows()) {
@@ -2500,7 +2787,6 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    const cwd = process.cwd()
-    createProjectWindow(isWritableDirectory(cwd) ? cwd : null)
+    createDashboardWindow()
   }
 })

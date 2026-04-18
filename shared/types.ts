@@ -52,6 +52,7 @@ export interface RecentProject {
   lastOpened: number
   workspace?: string
   sidebarMode?: 'full' | 'compact' | 'hidden'
+  sidebarWidth?: number
   accentColor?: string
   emoji?: string
   isOpen?: boolean
@@ -119,6 +120,15 @@ export interface SessionTemplate {
   projectPath: string
 }
 
+export interface SessionTimelineEntry {
+  title: string
+  summary: string
+  lastAction: string
+  actionItem?: string
+  timestamp: number
+  contextPercent?: number
+}
+
 export interface SessionContext {
   title: string
   summary: string
@@ -126,6 +136,7 @@ export interface SessionContext {
   actionItem?: string
   updatedAt: number
   contextPercent?: number
+  timeline?: SessionTimelineEntry[]
 }
 
 export interface SavedSession {
@@ -142,6 +153,55 @@ export interface SavedWindowState {
   sessions: SavedSession[]
   activeSessionName?: string
   savedAt: number
+}
+
+export interface HistoricalSession {
+  id: string
+  name: string
+  command?: string
+  projectPath: string
+  workspace?: string
+  createdAt: number
+  endedAt?: number
+  info?: SessionContext
+}
+
+export interface SessionHistoryFilter {
+  workspace?: string
+  projectPath?: string
+  query?: string
+  maxAgeDays?: number
+}
+
+export interface DashboardSession {
+  id: string
+  name: string
+  running: boolean
+  activityStatus: SessionActivityStatus
+  contextPercent?: number
+  info?: SessionContext
+}
+
+export interface DashboardProject {
+  path: string
+  name: string
+  isOpen: boolean
+  emoji?: string
+  accentColor?: string
+  sessions: DashboardSession[]
+}
+
+export interface DashboardWorkspace {
+  name: string
+  emoji?: string
+  accentColor?: string
+  description?: string
+  projects: DashboardProject[]
+}
+
+export interface DashboardState {
+  workspaces: DashboardWorkspace[]
+  standaloneProjects: DashboardProject[]
 }
 
 export interface ForgeTermNotification {
@@ -216,8 +276,15 @@ export interface ForgeTermAPI {
   reorderWorkspaceProjects: (workspaceName: string, newOrder: string[]) => Promise<void>
   getSidebarMode: () => Promise<'full' | 'compact' | 'hidden' | undefined>
   saveSidebarMode: (mode: 'full' | 'compact' | 'hidden') => Promise<void>
+  getSidebarWidth: () => Promise<number | undefined>
+  saveSidebarWidth: (width: number) => Promise<void>
   importVSCodeProjects: () => Promise<ImportResult | null>
   removeRecentProject: (projectPath: string) => Promise<void>
+  getSessionHistory: (projectPath?: string) => Promise<HistoricalSession[]>
+  searchSessionHistory: (filter: SessionHistoryFilter) => Promise<HistoricalSession[]>
+  deleteOldSessions: (maxAgeDays: number) => Promise<number>
+  getDashboardState: () => Promise<DashboardState>
+  onDashboardStateChanged: (callback: (state: DashboardState) => void) => () => void
   deleteWorkspace: (workspaceName: string) => Promise<void>
   openDataFile: (which: 'workspaces' | 'recent-projects') => Promise<void>
   revealInFinder: () => Promise<void>

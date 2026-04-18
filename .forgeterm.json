@@ -25,7 +25,7 @@
     "sidebarBackground": "#18152a",
     "sidebarForeground": "#a898c0",
     "buttonBackground": "#2a2248",
-    "emoji": "💚",
+    "emoji": "\ud83d\udc9a",
     "themeName": "lavender"
   },
   "sessions": [
@@ -46,5 +46,8 @@
     }
   ],
   "terminalTheme": "dark",
-  "projectName": "Forge Term  💻"
+  "projectName": "Forge Term  \ud83d\udcbb",
+  "claudeResumeArgs": [
+    "--dangerously-skip-permissions"
+  ]
 }

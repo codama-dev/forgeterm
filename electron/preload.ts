@@ -1,5 +1,5 @@
 import { ipcRenderer, contextBridge } from 'electron'
-import type { ForgeTermAPI, CliStatus, UpdateInfo, RemoteStatus, SessionContext } from '../shared/types'
+import type { ForgeTermAPI, CliStatus, UpdateInfo, RemoteStatus, SessionContext, DashboardState } from '../shared/types'
 
 const api: ForgeTermAPI = {
   createSession: (name: string, command?: string, idle?: boolean) =>
@@ -132,6 +132,30 @@ const api: ForgeTermAPI = {
 
   saveSidebarMode: (mode: string) =>
     ipcRenderer.invoke('project:save-sidebar-mode', mode),
+
+  getSidebarWidth: () =>
+    ipcRenderer.invoke('project:get-sidebar-width') as Promise<number | undefined>,
+
+  saveSidebarWidth: (width: number) =>
+    ipcRenderer.invoke('project:save-sidebar-width', width),
+
+  getSessionHistory: (projectPath?: string) =>
+    ipcRenderer.invoke('session-history:get', projectPath),
+
+  searchSessionHistory: (filter: { workspace?: string; projectPath?: string; query?: string; maxAgeDays?: number }) =>
+    ipcRenderer.invoke('session-history:search', filter),
+
+  deleteOldSessions: (maxAgeDays: number) =>
+    ipcRenderer.invoke('session-history:delete-old', maxAgeDays),
+
+  getDashboardState: () =>
+    ipcRenderer.invoke('dashboard:get-state'),
+
+  onDashboardStateChanged: (callback: (state: DashboardState) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, state: DashboardState) => callback(state)
+    ipcRenderer.on('dashboard:state-changed', handler)
+    return () => { ipcRenderer.removeListener('dashboard:state-changed', handler) }
+  },
 
   importVSCodeProjects: () =>
     ipcRenderer.invoke('import:vscode-projects'),
