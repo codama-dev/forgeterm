@@ -203,4 +203,4 @@ Pre-built downloads are available for macOS Apple Silicon via Homebrew or the Re
 
 ---
 
-Made with love by the [codama.dev](https://codama.dev) team
+Sponsored by [Codama](https://codama.dev)

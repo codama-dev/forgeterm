@@ -4,17 +4,17 @@
     <id>forgeterm</id>
     <version>0.15.0</version>
     <title>ForgeTerm</title>
-    <authors>Codama</authors>
-    <owners>codama-dev</owners>
-    <projectUrl>https://github.com/codama-dev/forgeterm</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/codama-dev/forgeterm/main/build/icon.png</iconUrl>
-    <licenseUrl>https://github.com/codama-dev/forgeterm/blob/main/LICENSE</licenseUrl>
+    <authors>Nadav Cohen</authors>
+    <owners>ncamaa</owners>
+    <projectUrl>https://github.com/ncamaa/forgeterm</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/ncamaa/forgeterm/main/build/icon.png</iconUrl>
+    <licenseUrl>https://github.com/ncamaa/forgeterm/blob/main/LICENSE</licenseUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
     <description>Terminal emulator for multi-project workflows. Electron-based with per-project windows, multiple sessions, configurable themes, and Claude Code integration.</description>
     <summary>Terminal emulator for multi-project workflows</summary>
     <tags>terminal emulator electron developer-tools cli</tags>
-    <packageSourceUrl>https://github.com/codama-dev/forgeterm</packageSourceUrl>
-    <bugTrackerUrl>https://github.com/codama-dev/forgeterm/issues</bugTrackerUrl>
+    <packageSourceUrl>https://github.com/ncamaa/forgeterm</packageSourceUrl>
+    <bugTrackerUrl>https://github.com/ncamaa/forgeterm/issues</bugTrackerUrl>
   </metadata>
   <files>
     <file src="tools\**" target="tools" />

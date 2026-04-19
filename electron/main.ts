@@ -2743,8 +2743,8 @@ app.whenReady().then(() => {
   app.setAboutPanelOptions({
     applicationName: 'ForgeTerm',
     copyright: 'Copyright © 2026 ForgeTerm',
-    credits: 'Built by Codama\nhttps://codama.dev',
-    website: 'https://codama.dev',
+    credits: 'Created by Nadav Cohen\nSponsored by Codama (codama.dev)',
+    website: 'https://github.com/ncamaa/forgeterm',
   })
   buildMenu()
   setupIpcHandlers()

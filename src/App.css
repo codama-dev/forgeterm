@@ -299,9 +299,11 @@
 }
 
 /* CLI install modal */
-.cli-install-modal {
+.modal.cli-install-modal {
   width: 440px;
   padding: 0;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
 }
 
 .sidebar-header {
@@ -1173,7 +1175,8 @@
   align-items: flex-start;
   justify-content: center;
   z-index: 2000;
-  padding-top: 60px;
+  padding: 60px 0 20px;
+  overflow-y: auto;
 }
 
 .modal {

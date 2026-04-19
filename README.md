@@ -16,7 +16,7 @@ brew install --cask codama-dev/tap/forgeterm
 brew install codama-dev/tap/forgeterm-cli
 ```
 
-**Manual:** Download the DMG from the [Releases page](https://github.com/codama-dev/forgeterm/releases), drag to Applications, then run:
+**Manual:** Download the DMG from the [Releases page](https://github.com/ncamaa/forgeterm/releases), drag to Applications, then run:
 
 ```
 xattr -cr /Applications/ForgeTerm.app
@@ -127,7 +127,7 @@ Drop a `.forgeterm.json` in any project to define startup sessions, themes, and 
 ## Build from Source
 
 ```bash
-git clone https://github.com/codama-dev/forgeterm.git
+git clone https://github.com/ncamaa/forgeterm.git
 cd forgeterm
 pnpm install
 
@@ -161,17 +161,21 @@ Three-layer Electron app:
 
 ForgeTerm is open source and actively looking for contributors. Whether it's a bug fix, a new feature, better docs, or just a suggestion - all contributions are welcome.
 
-- **Found a bug?** [Open an issue](https://github.com/codama-dev/forgeterm/issues) with steps to reproduce
-- **Have an idea?** [Start a discussion](https://github.com/codama-dev/forgeterm/issues) or open a feature request
+- **Found a bug?** [Open an issue](https://github.com/ncamaa/forgeterm/issues) with steps to reproduce
+- **Have an idea?** [Start a discussion](https://github.com/ncamaa/forgeterm/issues) or open a feature request
 - **Want to contribute code?** Fork the repo, create a branch, and open a PR - no issue required for small fixes
 - **Not a developer?** Testing, reporting bugs, and suggesting improvements are just as valuable
 
-Check the [open issues](https://github.com/codama-dev/forgeterm/issues) for things to work on. Issues labeled `good first issue` are a great starting point.
+Check the [open issues](https://github.com/ncamaa/forgeterm/issues) for things to work on. Issues labeled `good first issue` are a great starting point.
 
 ## License
 
 [MIT](LICENSE)
 
+## Sponsors
+
+ForgeTerm is proudly sponsored by **[Codama](https://codama.dev)** - a software development agency building tools for developers.
+
 ---
 
-Made with love by the [codama.dev](https://codama.dev) team
+Created by [Nadav Cohen](https://github.com/ncamaa) | Licensed under [MIT](LICENSE)

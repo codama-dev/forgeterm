@@ -205,7 +205,7 @@ jobs:
           $version = "${{ steps.version.outputs.version }}"
           $exe = Get-ChildItem -Path artifacts/win -Filter "*.exe" -Recurse | Select-Object -First 1
           $sha256 = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
-          $url = "https://github.com/codama-dev/forgeterm/releases/download/v${version}/ForgeTerm-Windows-${version}-Setup.exe"
+          $url = "https://github.com/ncamaa/forgeterm/releases/download/v${version}/ForgeTerm-Windows-${version}-Setup.exe"
 
           # Update nuspec version
           $nuspec = Get-Content choco/forgeterm.nuspec -Raw
